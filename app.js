@@ -1,7 +1,7 @@
 /* Tilstandsrapport: all logic for index.html (Alpine.js component + PDF). */
 
 // Bump on every change: the web version compares this with the published app.js to find updates.
-const WEB_VERSION = '1.2.0';
+const WEB_VERSION = '1.3.0';
 
 const REPORT_TYPES = ['Innflytting', 'Utflytting', 'Periodisk kontroll', 'Befaring'];
 const FAGPERSONER = ['Vaktmester', 'Elektriker', 'Rørlegger', 'Maler', 'Snekker', 'Flislegger',
@@ -33,22 +33,22 @@ const P = {
   skadedyr: ['Skadedyr', ['Kakerlakker', 'Veggdyr', 'Mus / rotter', 'Maur'], 'Skadedyrkontroll'],
 };
 
-const ROOMS = {
-  'Entré / gang':   ['vegger', 'gulv', 'dorer', 'el', 'vask'],
-  'Stue':           ['vegger', 'gulv', 'dorer', 'el', 'vask'],
-  'Kjøkken':        ['vegger', 'gulv', 'benk', 'kran', 'vifte', 'el', 'vask'],
-  'Soverom':        ['vegger', 'gulv', 'dorer', 'el', 'vask'],
-  'Bad':            ['vegger', 'wc', 'servant', 'dusj', 'fliser', 'ventil', 'el', 'vask'],
-  'WC':             ['vegger', 'wc', 'servant', 'ventil', 'vask'],
-  'Vaskerom':       ['vegger', 'gulv', 'kran', 'ventil', 'el', 'vask'],
-  'Bod':            ['bodlas', 'vegger', 'vask'],
-  'Balkong':        ['rekkverk', 'balgulv', 'vask'],
-  'Brannsikkerhet': ['royk', 'slukker', 'romning'],
-  'Skadedyr':       ['skadedyr'],
-  'Hvitevarer':     [],
-  'Annet rom':      ['vegger', 'gulv', 'dorer', 'el', 'vask'],
-};
-const DEFAULT_ROOMS = ['Entré / gang', 'Stue', 'Kjøkken', 'Soverom', 'Bad', 'Brannsikkerhet', 'Hvitevarer'];
+// Default room checklists (keys into P). The user can edit a copy under Innstillinger → Sjekklister.
+const DEFAULT_ROOM_KEYS = [
+  ['Entré / gang',   ['vegger', 'gulv', 'dorer', 'el', 'vask'], true],
+  ['Stue',           ['vegger', 'gulv', 'dorer', 'el', 'vask'], true],
+  ['Kjøkken',        ['vegger', 'gulv', 'benk', 'kran', 'vifte', 'el', 'vask'], true],
+  ['Soverom',        ['vegger', 'gulv', 'dorer', 'el', 'vask'], true],
+  ['Bad',            ['vegger', 'wc', 'servant', 'dusj', 'fliser', 'ventil', 'el', 'vask'], true],
+  ['WC',             ['vegger', 'wc', 'servant', 'ventil', 'vask'], false],
+  ['Vaskerom',       ['vegger', 'gulv', 'kran', 'ventil', 'el', 'vask'], false],
+  ['Bod',            ['bodlas', 'vegger', 'vask'], false],
+  ['Balkong',        ['rekkverk', 'balgulv', 'vask'], false],
+  ['Brannsikkerhet', ['royk', 'slukker', 'romning'], true],
+  ['Skadedyr',       ['skadedyr'], false],
+  ['Annet rom',      ['vegger', 'gulv', 'dorer', 'el', 'vask'], false],
+];
+const HVITEVARER = 'Hvitevarer';
 
 const APPLIANCES = {
   'Kjøleskap':        ['Kjøler ikke', 'Defekt pakning', 'Mangler hyller / skuffer', 'Skittent'],
@@ -65,9 +65,12 @@ const DEFAULT_APPLIANCES = ['Kjøleskap', 'Komfyr / stekeovn'];
 const DEFAULT_SETTINGS = {
   navn: '', stilling: 'Boligforvalter', bydel: '', kommune: '', telefon: '', epost: '',
   logo: '', adresser: [], pinHash: '', setupDone: false,
+  checklist: null,   // null = built-in checklist
+  stempel: true,     // date and address printed on photos
 };
 // Settings that travel in a profile/backup file (never the PIN).
-const PROFILE_KEYS = ['navn', 'stilling', 'bydel', 'kommune', 'telefon', 'epost', 'logo', 'adresser'];
+const PROFILE_KEYS = ['navn', 'stilling', 'bydel', 'kommune', 'telefon', 'epost', 'logo', 'adresser', 'checklist', 'stempel'];
+const TILTAK_STATUS = ['Åpen', 'Bestilt', 'Utført'];
 
 const LOCK_AFTER_MS = 5 * 60 * 1000;
 
@@ -89,21 +92,41 @@ function safeFileName(s) {
   return String(s || '').replace(/[^A-Za-z0-9ÆØÅæøåÄÖÜäöüé.-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 50);
 }
 
-function makeItem(key) {
-  const [name, options, fagperson] = P[key];
-  return blankItem({ name, options: [...options], fagperson });
+/**
+ * The checklist every new report is built from:
+ * { rooms: [{ name, inNew, appliances?, items: [{ name, options, fagperson }] }],
+ *   appliances: [{ name, defects, inNew }], fagpersoner: [..] }
+ * Reports copy their items, so editing the checklist never changes existing reports.
+ */
+function defaultChecklist() {
+  const rooms = DEFAULT_ROOM_KEYS.map(([name, keys, inNew]) => ({
+    name, inNew, items: keys.map(k => ({ name: P[k][0], options: [...P[k][1]], fagperson: P[k][2] })),
+  }));
+  rooms.splice(rooms.findIndex(r => r.name === 'Skadedyr'), 0, { name: HVITEVARER, inNew: true, appliances: true, items: [] });
+  return {
+    rooms,
+    appliances: Object.entries(APPLIANCES).map(([name, defects]) => ({ name, defects: [...defects], inNew: DEFAULT_APPLIANCES.includes(name) })),
+    fagpersoner: [...FAGPERSONER],
+  };
 }
+let CHECKLIST = defaultChecklist();
+
 function blankItem(extra) {
   return Object.assign({ id: uid(), name: '', status: null, options: [], selected: [], kommentar: '',
-    fagperson: 'Vaktmester', hast: 'Snart', kostnad: '', belastes: 'Utleier', photos: [], custom: false }, extra);
+    fagperson: 'Vaktmester', hast: 'Snart', kostnad: '', belastes: 'Utleier', photos: [], custom: false,
+    tiltak: { status: 'Åpen', bestilt: '', utfort: '' } }, extra);
 }
-function makeRoom(kind) {
-  const room = { id: uid(), kind, name: kind, items: ROOMS[kind].map(makeItem) };
-  if (kind === 'Hvitevarer') room.items = DEFAULT_APPLIANCES.map(makeAppliance);
-  return room;
+function makeRoom(name) {
+  const def = CHECKLIST.rooms.find(r => r.name === name) || { name, items: [] };
+  if (def.appliances) {
+    return { id: uid(), kind: HVITEVARER, name, items: CHECKLIST.appliances.filter(a => a.inNew).map(a => makeAppliance(a.name)) };
+  }
+  return { id: uid(), kind: name, name,
+    items: def.items.map(it => blankItem({ name: it.name, options: [...it.options], fagperson: it.fagperson })) };
 }
 function makeAppliance(type) {
-  return blankItem({ name: type, options: [...APPLIANCES[type]], fagperson: 'Servicepartner' });
+  const def = CHECKLIST.appliances.find(a => a.name === type);
+  return blankItem({ name: type, options: def ? [...def.defects] : [], fagperson: 'Servicepartner' });
 }
 function newReportData() {
   return {
@@ -112,10 +135,24 @@ function newReportData() {
     leietaker: { navn: '', telefon: '', epost: '', tilstede: 'Ja' },
     strom: { maler: '', stand: '' },
     nokler: { nokler: '', brikker: '', merknad: '' },
-    rooms: DEFAULT_ROOMS.map(makeRoom),
+    rooms: CHECKLIST.rooms.filter(r => r.inNew).map(r => makeRoom(r.name)),
     merknad: '',
     signatures: { forvalter: null, leietaker: null },
+    compareWith: null,
   };
+}
+/** Older reports lack newer fields; fill them in when a report is loaded. */
+function upgradeReport(r) {
+  for (const room of r.rooms) for (const it of room.items) {
+    if (!it.tiltak) it.tiltak = { status: 'Åpen', bestilt: '', utfort: '' };
+  }
+  if (!('compareWith' in r)) r.compareWith = null;
+  return r;
+}
+/** "Soverom 2" when a report has several rooms with the same name. */
+function labelIn(rooms, room) {
+  const same = rooms.filter(r => r.name === room.name);
+  return same.length > 1 ? `${room.name} ${same.indexOf(room) + 1}` : room.name;
 }
 
 function reportStats(r) {
@@ -139,8 +176,9 @@ async function hashPin(pin) {
   return 'fnv' + (h >>> 0).toString(16);
 }
 
-/** Resizes a photo to at most `max` px on the long side and re-encodes it as JPEG. */
-function compressImage(file, max = 1600, quality = 0.72) {
+/** Resizes a photo to at most `max` px on the long side and re-encodes it as JPEG.
+ *  `stamp` (optional) is printed on a dark band along the bottom edge. */
+function compressImage(file, stamp = '', max = 1600, quality = 0.72) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -153,12 +191,33 @@ function compressImage(file, max = 1600, quality = 0.72) {
       ctx.fillStyle = '#fff';
       ctx.fillRect(0, 0, c.width, c.height);
       ctx.drawImage(img, 0, 0, c.width, c.height);
+      if (stamp) {
+        const fs = Math.max(14, Math.round(c.width * 0.026));
+        ctx.font = `600 ${fs}px system-ui, sans-serif`;
+        const band = Math.round(fs * 1.9);
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(0, c.height - band, c.width, band);
+        ctx.fillStyle = '#fff';
+        ctx.textBaseline = 'middle';
+        let text = stamp;
+        while (text.length > 4 && ctx.measureText(text).width > c.width - fs) text = text.slice(0, -2);
+        if (text !== stamp) text = text.slice(0, -1) + '…';
+        ctx.fillText(text, Math.round(fs * 0.6), c.height - band / 2);
+      }
       URL.revokeObjectURL(url);
       resolve(c.toDataURL('image/jpeg', quality));
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Kunne ikke lese bildet')); };
     img.src = url;
   });
+}
+
+/** "24.09.2026 14:05 · Adresse, H0101" from the photo's own time when it has one. */
+function photoStamp(file, report) {
+  const t = file.lastModified && Math.abs(Date.now() - file.lastModified) < 366 * 864e5 ? new Date(file.lastModified) : new Date();
+  const time = `${formatDate(t)} ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+  const place = [report.adresse, report.leilighet].filter(Boolean).join(', ');
+  return [time, place].filter(Boolean).join(' · ');
 }
 
 /** Shrinks a logo to at most `max` px and keeps transparency (PNG). */
@@ -216,6 +275,33 @@ const DB = {
 
 function toPlain(obj) { return JSON.parse(JSON.stringify(obj)); }
 
+/* ---------------- comparison with an earlier report ---------------- */
+
+function normAddr(a) { return String(a || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+/** Map "Room label|Item name" -> item of the reference report. */
+function refMapOf(ref) {
+  const map = {};
+  for (const room of ref.rooms) for (const it of room.items) map[labelIn(ref.rooms, room) + '|' + it.name] = it;
+  return map;
+}
+/** 'ny' = defect now, OK before; 'for' = defect then and now; '' otherwise. */
+function compareTag(prev, it) {
+  if (!prev || it.status !== 'FEIL') return '';
+  if (prev.status === 'OK') return 'ny';
+  if (prev.status === 'FEIL') return 'for';
+  return '';
+}
+function describeItem(it) { return [it.selected.join(', '), (it.kommentar || '').trim()].filter(Boolean).join('. '); }
+function tiltakText(t) {
+  if (!t || t.status === 'Åpen') return '';
+  const d = t.status === 'Utført' ? t.utfort : t.bestilt;
+  return t.status + (d ? ' ' + formatDate(d) : '');
+}
+function csvCell(v) {
+  const s = String(v == null ? '' : v);
+  return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
 /* ---------------- PDF ---------------- */
 
 // Built-in PDF fonts only cover Latin-1 (æøå are fine); map the rest to look-alikes.
@@ -227,7 +313,7 @@ function pdfText(s) {
     .replace(/[^\n\r\t\x20-\x7E\xA0-\xFF]/g, '?');
 }
 
-function buildPdf(report, settings, roomLabel) {
+function buildPdf(report, settings, roomLabel, ref) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const W = 210, M = 14, BOTTOM = 280;
@@ -241,7 +327,14 @@ function buildPdf(report, settings, roomLabel) {
     it._nr = it.photos.map(p => { photoList.push({ data: p.data, caption: `${roomLabel(room)} - ${it.name}` }); return photoList.length; });
   }
   const refs = it => it._nr && it._nr.length ? ` (Bilde ${it._nr.join(', ')})` : '';
-  const describe = it => [it.selected.join(', '), it.kommentar.trim()].filter(Boolean).join('. ') + refs(it);
+  const refMap = ref ? refMapOf(ref) : null;
+  const refName = ref ? `${ref.type.toLowerCase()} ${formatDate(ref.dato)}` : '';
+  const tagOf = (room, it) => refMap ? compareTag(refMap[labelIn(report.rooms, room) + '|' + it.name], it) : '';
+  const tagText = t => t === 'ny' ? `Ny siden ${refName}` : t === 'for' ? `Fantes ved ${refName}` : '';
+  const describeIn = (room, it) => {
+    const tag = tagText(tagOf(room, it));
+    return describeItem(it) + refs(it) + (tag ? ` [${tag}]` : '');
+  };
 
   // Header
   doc.setFillColor(...brand); doc.rect(0, 0, W, 32, 'F');
@@ -307,6 +400,14 @@ function buildPdf(report, settings, roomLabel) {
   });
   y += 22;
 
+  if (ref) {
+    let ny = 0, fr = 0;
+    for (const room of report.rooms) for (const it of room.items) { const t = tagOf(room, it); if (t === 'ny') ny++; if (t === 'for') fr++; }
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(20);
+    doc.text(T(`Sammenlignet med ${refName}: ${ny} nye avvik, ${fr} fantes fra før.`), M, y - 3);
+    y += 5;
+  }
+
   // Defects grouped by trade: doubles as the order list.
   const hastRank = { 'Akutt': 0, 'Snart': 1, 'Kan vente': 2 };
   const defects = [];
@@ -325,14 +426,15 @@ function buildPdf(report, settings, roomLabel) {
     doc.text('AVVIK OG TILTAK', M, y); y += 2;
     doc.autoTable({
       startY: y, margin: { left: M, right: M },
-      head: [['Fagperson', 'Rom / punkt', 'Beskrivelse', 'Hast', 'Kostnad', 'Belastes']],
-      body: defects.map(({ room, it }) => [it.fagperson, `${roomLabel(room)}\n${it.name}`, describe(it) || '-', it.hast,
+      head: [['Fagperson', 'Rom / punkt', 'Beskrivelse', 'Hast / status', 'Kostnad', 'Belastes']],
+      body: defects.map(({ room, it }) => [it.fagperson, `${roomLabel(room)}\n${it.name}`, describeIn(room, it) || '-',
+        [it.hast, tiltakText(it.tiltak)].filter(Boolean).join('\n'),
         it.kostnad ? kr(it.kostnad) : '-', it.belastes].map(T)),
       foot, showFoot: 'lastPage',
       headStyles: { fillColor: red, fontSize: 8 }, footStyles: { fillColor: [255, 228, 230], textColor: 20, fontSize: 8 },
       styles: { fontSize: 8, cellPadding: 1.8, valign: 'top' },
-      columnStyles: { 0: { cellWidth: 26, fontStyle: 'bold' }, 1: { cellWidth: 34 }, 3: { cellWidth: 16 }, 4: { cellWidth: 20, halign: 'right' }, 5: { cellWidth: 19 } },
-      didParseCell: d => { if (d.section === 'body' && d.column.index === 3 && d.cell.raw === 'Akutt') { d.cell.styles.textColor = red; d.cell.styles.fontStyle = 'bold'; } },
+      columnStyles: { 0: { cellWidth: 26, fontStyle: 'bold' }, 1: { cellWidth: 34 }, 3: { cellWidth: 20 }, 4: { cellWidth: 20, halign: 'right' }, 5: { cellWidth: 19 } },
+      didParseCell: d => { if (d.section === 'body' && d.column.index === 3 && String(d.cell.raw).startsWith('Akutt')) { d.cell.styles.textColor = red; d.cell.styles.fontStyle = 'bold'; } },
     });
     y = doc.lastAutoTable.finalY + 8;
   }
@@ -344,7 +446,7 @@ function buildPdf(report, settings, roomLabel) {
   for (const room of report.rooms) {
     const rows = room.items.filter(it => it.status).map(it => [
       it.name, it.status === 'OK' ? 'OK' : 'AVVIK',
-      it.status === 'OK' ? 'I orden' : (describe(it) || '-'),
+      it.status === 'OK' ? 'I orden' : (describeIn(room, it) || '-'),
       it.status === 'FEIL' ? it.fagperson : '-',
     ].map(T));
     if (!rows.length) continue;
@@ -441,8 +543,11 @@ function buildPdf(report, settings, roomLabel) {
 
 function app() {
   return {
-    REPORT_TYPES, FAGPERSONER, HASTEGRAD, BELASTES, ROOMS, APPLIANCES,
+    REPORT_TYPES, HASTEGRAD, BELASTES, TILTAK_STATUS, HVITEVARER,
     screen: 'list',
+    _defCl: defaultChecklist(), clOpen: null,
+    ref: null, refMap: null,
+    defects: [], defFilter: 'ikke-utfort', defSearch: '',
     reports: [],
     report: null,
     openRoom: null,
@@ -463,6 +568,7 @@ function app() {
         this.toast('Lagring er ikke tilgjengelig i denne nettleseren');
       }
       if (!Array.isArray(this.settings.adresser)) this.settings.adresser = [];
+      this.applyChecklist();
       if (!this.settings.setupDone) this.screen = 'setup';
       if (this.settings.pinHash) this.lock();
       await this.loadList();
@@ -498,7 +604,64 @@ function app() {
       this.settings.pinHash = '';
       await this.saveSettings();
     },
-    async saveSettings() { await DB.put('kv', toPlain(this.settings), 'settings'); },
+    async saveSettings() { this.applyChecklist(); await DB.put('kv', toPlain(this.settings), 'settings'); },
+    applyChecklist() { CHECKLIST = this.settings.checklist ? toPlain(this.settings.checklist) : defaultChecklist(); },
+    cl() { return this.settings.checklist || this._defCl; },
+
+    /* ---- checklist editor ---- */
+    openChecklist() {
+      if (!this.settings.checklist) this.settings.checklist = defaultChecklist();
+      this.clOpen = null;
+      this.screen = 'checklist';
+      window.scrollTo(0, 0);
+    },
+    lines(text) { return [...new Set(String(text).split(/[\n,]/).map(x => x.trim()).filter(Boolean))]; },
+    clAddRoom() {
+      const name = (prompt('Navn på rommet:') || '').trim();
+      if (!name) return;
+      if (this.settings.checklist.rooms.some(r => r.name === name)) return this.toast('Det finnes allerede et rom med det navnet');
+      this.settings.checklist.rooms.push({ name, inNew: false, items: [] });
+      this.clOpen = name;
+      this.saveSettings();
+    },
+    clRenameRoom(room, name) {
+      name = name.trim();
+      if (!name || this.settings.checklist.rooms.some(r => r !== room && r.name === name)) { this.toast('Ugyldig eller brukt navn'); return; }
+      room.name = name; this.clOpen = name; this.saveSettings();
+    },
+    clMoveRoom(i, d) {
+      const rooms = this.settings.checklist.rooms, j = i + d;
+      if (j < 0 || j >= rooms.length) return;
+      [rooms[i], rooms[j]] = [rooms[j], rooms[i]];
+      this.saveSettings();
+    },
+    clRemoveRoom(i) {
+      const room = this.settings.checklist.rooms[i];
+      if (!confirm(`Fjerne «${room.name}» fra sjekklisten? Eksisterende rapporter endres ikke.`)) return;
+      this.settings.checklist.rooms.splice(i, 1);
+      this.saveSettings();
+    },
+    clAddItem(room) { room.items.push({ name: 'Nytt punkt', options: [], fagperson: this.cl().fagpersoner[0] || 'Vaktmester' }); this.saveSettings(); },
+    clRemoveItem(room, i) { room.items.splice(i, 1); this.saveSettings(); },
+    clMoveItem(room, i, d) {
+      const j = i + d;
+      if (j < 0 || j >= room.items.length) return;
+      [room.items[i], room.items[j]] = [room.items[j], room.items[i]];
+      this.saveSettings();
+    },
+    clAddAppliance() {
+      const name = (prompt('Navn på hvitevaren:') || '').trim();
+      if (!name) return;
+      this.settings.checklist.appliances.push({ name, defects: [], inNew: false });
+      this.saveSettings();
+    },
+    clRemoveAppliance(i) { this.settings.checklist.appliances.splice(i, 1); this.saveSettings(); },
+    clReset() {
+      if (!confirm('Tilbakestille sjekklistene til standard? Egne endringer forsvinner. Eksisterende rapporter endres ikke.')) return;
+      this.settings.checklist = defaultChecklist();
+      this.saveSettings();
+      this.toast('Sjekklistene er tilbakestilt');
+    },
     async finishSetup() {
       this.settings.setupDone = true;
       await this.saveSettings();
@@ -531,7 +694,8 @@ function app() {
       try { all = await DB.all('reports'); } catch (e) { /* storage unavailable */ }
       this.reports = all
         .map(r => ({ id: r.id, adresse: r.adresse, leilighet: r.leilighet, dato: r.dato, type: r.type,
-          leietaker: { navn: r.leietaker.navn }, pdfAt: r.pdfAt, updated: r.updated, feil: reportStats(r).feil }))
+          leietaker: { navn: r.leietaker.navn }, pdfAt: r.pdfAt, updated: r.updated, feil: reportStats(r).feil,
+          open: r.rooms.reduce((n, room) => n + room.items.filter(it => it.status === 'FEIL' && (!it.tiltak || it.tiltak.status !== 'Utført')).length, 0) }))
         .sort((a, b) => b.updated - a.updated);
     },
     newReport() { this.edit(newReportData()); },
@@ -554,8 +718,12 @@ function app() {
     },
 
     /* ---- editor ---- */
+    openCount() { return this.reports.reduce((n, r) => n + r.open, 0); },
     edit(r) {
-      this.report = r;
+      this.report = upgradeReport(r);
+      this.ref = null; this.refMap = null;
+      this.autoCompare();
+      this.loadRef();
       this.openRoom = r.rooms.length ? r.rooms[0].id : null;
       this.screen = 'edit';
       window.scrollTo(0, 0);
@@ -569,7 +737,10 @@ function app() {
       else await this.saveNow();
       this.pads = {};
       this.report = null;
-      this.screen = 'list';
+      this.ref = null; this.refMap = null;
+      this.screen = this._returnTo || 'list';
+      this._returnTo = null;
+      if (this.screen === 'avvik') await this.loadDefects();
       await this.loadList();
       window.scrollTo(0, 0);
     },
@@ -577,6 +748,8 @@ function app() {
       if (this.locked) return false;
       if (this.screen === 'edit') { this.closeReport(); return true; }
       if (this.screen === 'settings') { this.saveSettings(); this.screen = 'list'; return true; }
+      if (this.screen === 'checklist') { this.saveSettings(); this.screen = 'settings'; return true; }
+      if (this.screen === 'avvik') { this.closeDefects(); return true; }
       if (this.screen === 'setup' && this.settings.setupDone) { this.screen = 'settings'; return true; }
       return false;
     },
@@ -593,9 +766,50 @@ function app() {
     progressText() { const s = reportStats(this.report); return `${s.checked}/${s.total} kontrollert`; },
     nokkelLabel() { return this.report.type === 'Utflytting' ? 'Innlevert' : this.report.type === 'Innflytting' ? 'Utlevert' : 'Registrert'; },
 
-    roomLabel(room) {
-      const same = this.report.rooms.filter(r => r.name === room.name);
-      return same.length > 1 ? `${room.name} ${same.indexOf(room) + 1}` : room.name;
+    roomLabel(room) { return labelIn(this.report.rooms, room); },
+
+    /* ---- comparison with an earlier report of the same flat ---- */
+    compareCandidates() {
+      const r = this.report;
+      if (!r || !normAddr(r.adresse)) return [];
+      return this.reports
+        .filter(x => x.id !== r.id && normAddr(x.adresse) === normAddr(r.adresse)
+          && (!r.leilighet || !x.leilighet || normAddr(x.leilighet) === normAddr(r.leilighet))
+          && (!r.dato || !x.dato || x.dato <= r.dato))
+        .sort((a, b) => (b.dato || '').localeCompare(a.dato || ''));
+    },
+    // Utflytting picks the latest innflytting of the same flat, once; the user can change it.
+    autoCompare() {
+      const r = this.report;
+      if (!r || r.compareWith !== null || r.type !== 'Utflytting') return;
+      const inn = this.compareCandidates().find(x => x.type === 'Innflytting');
+      if (inn) { r.compareWith = inn.id; this.loadRef(); }
+    },
+    async loadRef() {
+      const id = this.report && this.report.compareWith;
+      if (!id) { this.ref = null; this.refMap = null; return; }
+      const ref = await DB.get('reports', id);
+      if (!ref || !this.report || this.report.compareWith !== id) return;
+      this.ref = upgradeReport(ref);
+      this.refMap = refMapOf(this.ref);
+    },
+    setCompare(id) { this.report.compareWith = id || ''; this.loadRef(); this.queueSave(); },
+    refName() { return this.ref ? `${this.ref.type} ${formatDate(this.ref.dato)}` : ''; },
+    prevOf(room, item) { return this.refMap ? this.refMap[this.roomLabel(room) + '|' + item.name] : undefined; },
+    prevText(room, item) {
+      const p = this.prevOf(room, item);
+      if (!p) return 'Ikke med i ' + this.refName();
+      if (p.status === 'OK') return this.refName() + ': OK';
+      if (p.status === 'FEIL') return this.refName() + ': AVVIK' + (describeItem(p) ? ' – ' + describeItem(p) : '');
+      return this.refName() + ': ikke kontrollert';
+    },
+    tagFor(room, item) { return compareTag(this.prevOf(room, item), item); },
+
+    /* ---- follow-up of defects ---- */
+    setTiltak(t, status) {
+      t.status = status;
+      if (status === 'Bestilt' && !t.bestilt) t.bestilt = today();
+      if (status === 'Utført' && !t.utfort) t.utfort = today();
     },
     roomStats(room) {
       const checked = room.items.filter(i => i.status).length;
@@ -637,7 +851,10 @@ function app() {
       if (!files.length) return;
       this.busy = 'Behandler bilde …';
       try {
-        for (const f of files) item.photos.push({ id: uid(), data: await compressImage(f) });
+        for (const f of files) {
+          const stamp = this.settings.stempel !== false ? photoStamp(f, this.report) : '';
+          item.photos.push({ id: uid(), data: await compressImage(f, stamp) });
+        }
       } catch (err) {
         this.toast(err.message);
       } finally {
@@ -701,7 +918,8 @@ function app() {
       this.busy = 'Lager PDF …';
       await new Promise(res => setTimeout(res, 60));
       try {
-        const doc = buildPdf(toPlain(r), this.settings, room => this.roomLabel(r.rooms.find(x => x.id === room.id)));
+        const doc = buildPdf(toPlain(r), this.settings, room => this.roomLabel(r.rooms.find(x => x.id === room.id)),
+          this.ref ? toPlain(this.ref) : null);
         const name = `Tilstandsrapport_${safeFileName(r.type)}_${safeFileName(r.adresse)}_${r.dato}.pdf`;
         if (window.TilstandAndroid) {
           const b64 = doc.output('datauristring').split(',')[1];
@@ -725,6 +943,64 @@ function app() {
       } finally {
         this.busy = '';
       }
+    },
+
+    /* ---- all defects across reports ---- */
+    async openDefects() { this.screen = 'avvik'; window.scrollTo(0, 0); await this.loadDefects(); },
+    closeDefects() { this.screen = 'list'; this.defects = []; this.loadList(); },
+    async loadDefects() {
+      const all = (await DB.all('reports')).map(upgradeReport);
+      const list = [];
+      for (const r of all) for (const room of r.rooms) for (const it of room.items) {
+        if (it.status !== 'FEIL') continue;
+        list.push({ key: r.id + it.id, reportId: r.id, itemId: it.id, adresse: r.adresse, leilighet: r.leilighet,
+          dato: r.dato, type: r.type, leietaker: r.leietaker.navn, rom: labelIn(r.rooms, room), punkt: it.name,
+          beskrivelse: describeItem(it), fagperson: it.fagperson, hast: it.hast, kostnad: it.kostnad, belastes: it.belastes,
+          tiltak: { ...it.tiltak } });
+      }
+      const rank = { 'Akutt': 0, 'Snart': 1, 'Kan vente': 2 };
+      list.sort((a, b) => rank[a.hast] - rank[b.hast] || (b.dato || '').localeCompare(a.dato || ''));
+      this.defects = list;
+    },
+    filteredDefects(filter = this.defFilter) {
+      const q = normAddr(this.defSearch);
+      return this.defects.filter(d => {
+        const st = d.tiltak.status;
+        if (filter === 'ikke-utfort' && st === 'Utført') return false;
+        if (TILTAK_STATUS.includes(filter) && st !== filter) return false;
+        return !q || normAddr([d.adresse, d.leilighet, d.fagperson, d.rom, d.punkt, d.leietaker].join(' ')).includes(q);
+      });
+    },
+    defCount(f) { return this.filteredDefects(f).length; },
+    async setDefectStatus(d, status) {
+      const r = await DB.get('reports', d.reportId);
+      if (!r) return;
+      upgradeReport(r);
+      for (const room of r.rooms) for (const it of room.items) {
+        if (it.id === d.itemId) { this.setTiltak(it.tiltak, status); d.tiltak = { ...it.tiltak }; }
+      }
+      await DB.put('reports', r);
+    },
+    async setDefectDate(d, field, value) {
+      const r = await DB.get('reports', d.reportId);
+      if (!r) return;
+      upgradeReport(r);
+      for (const room of r.rooms) for (const it of room.items) if (it.id === d.itemId) it.tiltak[field] = value;
+      d.tiltak[field] = value;
+      await DB.put('reports', r);
+    },
+    async openFromDefects(d) { this._returnTo = 'avvik'; await this.openReport(d.reportId); },
+    exportCsv() {
+      const head = ['Adresse', 'Leil.nr', 'Rapportdato', 'Type', 'Leietaker', 'Rom', 'Punkt', 'Beskrivelse', 'Fagperson',
+        'Hastegrad', 'Kostnad', 'Belastes', 'Status', 'Bestilt', 'Utført'];
+      const rows = this.filteredDefects().map(d => [d.adresse, d.leilighet, formatDate(d.dato), d.type, d.leietaker, d.rom,
+        d.punkt, d.beskrivelse, d.fagperson, d.hast, d.kostnad, d.belastes, d.tiltak.status, formatDate(d.tiltak.bestilt), formatDate(d.tiltak.utfort)]);
+      if (!rows.length) return this.toast('Ingen avvik å eksportere');
+      // Semicolons and a BOM so Norwegian Excel opens it straight into columns with æøå intact.
+      const text = '\ufeff' + [head, ...rows].map(r => r.map(csvCell).join(';')).join('\r\n');
+      const name = `avvik-${today()}.csv`;
+      if (window.TilstandAndroid) TilstandAndroid.saveText(name, 'text/csv', text);
+      else downloadBlob(new Blob([text], { type: 'text/csv;charset=utf-8' }), name);
     },
 
     /* ---- backup ---- */

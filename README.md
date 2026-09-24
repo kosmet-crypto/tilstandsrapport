@@ -16,6 +16,13 @@ unless you share the PDF or export a backup.
   (resized automatically so PDFs stay small).
 * Autosave, report history, "Ny fra denne" to start a new report for the same flat.
 * Two signatures. The PDF has a summary, a defect/order list grouped by trade, per-room tables and photo pages.
+* Comparison: an utflytting report is compared with the latest innflytting of the same flat; every point shows
+  what was recorded then, new damage is marked "NY SKADE" and the PDF says what is new and what was there before.
+* Own checklists (Innstillinger → Rediger sjekklister): rooms, points, typical faults, fagpersoner and appliances,
+  and which of them every new report starts with. Travels with the profile backup.
+* Date, time and address printed on photos (can be turned off).
+* Follow-up per defect: Åpen → Bestilt → Utført with dates, and an "Avvik og oppfølging" overview across all reports.
+* Export of defects to Excel (CSV, semicolon separated, opens directly in Norwegian Excel).
 * Optional PIN lock, backup export/import, "Slett alle data".
 * Works offline, as a web app (PWA) and as an Android APK.
 

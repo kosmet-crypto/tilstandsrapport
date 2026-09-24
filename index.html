@@ -68,6 +68,8 @@ input[type=text], input[type=tel], input[type=date], input[type=number], input[t
 input:focus, select:focus, textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
 textarea { min-height: 80px; resize: vertical; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.grid2 > * { min-width: 0; }
+input[type=date] { min-width: 0; max-width: 100%; -webkit-appearance: none; appearance: none; }
 @media (max-width: 380px) { .grid2 { grid-template-columns: 1fr; } }
 
 .seg { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
@@ -157,6 +159,28 @@ canvas.sig { display: block; width: 100%; height: 170px; border: 1px solid var(-
 .logo-top { width: 42px; height: 42px; padding: 4px; }
 .logo-prev img, .logo-top img { max-width: 100%; max-height: 100%; }
 .linkbtn { background: none; border: 0; color: var(--brand); font-weight: 700; font-size: 13px; padding: 8px; text-decoration: underline; }
+.check { display: flex; gap: 10px; align-items: center; font-size: 15px; font-weight: 600; }
+.check input, .cl-room input[type=checkbox], .cl-item input[type=checkbox] { width: 22px; height: 22px; min-height: 0; flex: none; accent-color: var(--brand); }
+.cl-room { border-top: 1px solid var(--line); padding: 8px 0; }
+.cl-room:first-of-type { border-top: 0; }
+.cl-name { background: none; border: 0; text-align: left; font-weight: 700; font-size: 15px; padding: 8px 4px; display: flex; gap: 8px; align-items: baseline; }
+.cl-body { padding: 6px 0 8px; }
+.cl-item { background: var(--field); border: 1px solid var(--line); border-radius: 12px; padding: 8px; margin-bottom: 8px; }
+.cl-item > * + * { margin-top: 6px; }
+.cl-item input[type=text], .cl-item select { min-height: 40px; padding: 8px 10px; background: var(--card); }
+.mini { border: 1px solid var(--line); background: var(--card); border-radius: 8px; width: 36px; height: 36px; font-weight: 700; flex: none; }
+.mini.del { color: var(--bad); }
+.prev { font-size: 12px; font-weight: 500; color: var(--muted); margin-top: 2px; }
+.newtag, .oldtag { display: inline-block; font-size: 11px; font-weight: 800; padding: 1px 6px; border-radius: 6px; margin-left: 4px; vertical-align: middle; }
+.newtag { background: var(--bad); color: #fff; }
+.oldtag { background: #fef3c7; color: #92400e; }
+.seg.tiltak button { padding: 8px 6px; font-size: 13px; }
+.seg.tiltak { margin-bottom: 8px; }
+.defect .seg.tiltak button { background: var(--card); }
+.defect .seg.tiltak button.on, .defcard .seg.tiltak button.on { background: var(--brand); color: #fff; border-color: var(--brand); }
+.defcard .title { font-weight: 700; }
+.defcard.st-Utført { opacity: .75; }
+.defcard.st-Utført .seg.tiltak button.on { background: var(--ok); border-color: var(--ok); }
 .credits { background: var(--field); border: 1px solid var(--line); border-radius: 12px; padding: 12px; text-align: center; line-height: 1.6; }
 footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 24px; }
 </style>
@@ -188,6 +212,8 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
       <main>
         <button class="btn btn-ghost btn-block" x-show="updateReady" @click="installUpdate()" style="margin-bottom:12px" x-text="'Ny versjon ' + updateReady + ' er klar. Trykk for å oppdatere'"></button>
         <button class="btn btn-primary btn-block btn-big" @click="newReport()">+ Ny rapport</button>
+        <button class="btn btn-ghost btn-block" style="margin-top:8px" x-show="reports.some(r => r.feil)" @click="openDefects()"
+          x-text="'Avvik og oppfølging' + (openCount() ? ' · ' + openCount() + ' ikke utført' : '')"></button>
         <div style="height:16px"></div>
 
         <template x-if="reports.length === 0">
@@ -201,7 +227,7 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
               <div class="muted small" x-text="[r.leilighet && ('Leil. ' + r.leilighet), formatDate(r.dato), r.leietaker.navn].filter(Boolean).join(' · ')"></div>
               <div style="margin-top:6px">
                 <span class="tag" x-text="r.type"></span>
-                <span class="tag bad" x-show="r.feil > 0" x-text="r.feil + ' avvik'"></span>
+                <span class="tag bad" x-show="r.feil > 0" x-text="r.feil + ' avvik' + (r.open < r.feil ? ' (' + (r.feil - r.open) + ' utført)' : '')"></span>
                 <span class="tag ok" x-show="r.pdfAt" x-text="'PDF ' + formatDate(r.pdfAt)"></span>
               </div>
               <div class="menu">
@@ -302,8 +328,15 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
         <template x-if="screen === 'settings'">
           <div>
             <section class="card stack">
+              <h2>Sjekklister og bilder</h2>
+              <p class="muted small" style="margin-top:0">Bestem selv hvilke rom, punkter, typiske feil og fagpersoner nye rapporter får.</p>
+              <button class="btn btn-ghost btn-block" @click="openChecklist()">Rediger sjekklister</button>
+              <label class="check"><input type="checkbox" x-model="settings.stempel" @change="saveSettings()"> Skriv dato, klokkeslett og adresse på bildene</label>
+            </section>
+
+            <section class="card stack">
               <h2>Sikkerhetskopi</h2>
-              <p class="muted small" style="margin-top:0">Alt ligger bare på denne enheten. <b>Profil</b> er innstillingene over (navn, bydel, logo, adresser). <b>Sikkerhetskopi</b> er profil + alle rapporter. Bruk dem for å flytte data til ny telefon, mellom nettleser og app, eller til en kollega.</p>
+              <p class="muted small" style="margin-top:0">Alt ligger bare på denne enheten. <b>Profil</b> er innstillingene (navn, bydel, logo, adresser, sjekklister). <b>Sikkerhetskopi</b> er profil + alle rapporter. Bruk dem for å flytte data til ny telefon, mellom nettleser og app, eller til en kollega.</p>
               <button class="btn btn-ghost btn-block" @click="exportProfile()">Eksporter profil</button>
               <button class="btn btn-ghost btn-block" @click="exportBackup()">Eksporter sikkerhetskopi (alt)</button>
               <label class="btn btn-ghost btn-block">Importer profil eller sikkerhetskopi
@@ -329,6 +362,139 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
     </div>
   </template>
 
+  <!-- ============ CHECKLIST EDITOR ============ -->
+  <template x-if="screen === 'checklist' && settings.checklist">
+    <div>
+      <header class="topbar">
+        <div class="topbar-row">
+          <button class="icon-btn" @click="saveSettings(); screen = 'settings'" aria-label="Tilbake">←</button>
+          <h1>Sjekklister<div class="sub">Gjelder nye rapporter · lagres automatisk</div></h1>
+        </div>
+      </header>
+      <main @change="saveSettings()">
+        <section class="card">
+          <h2>Rom</h2>
+          <p class="muted small" style="margin-top:0">Kryss av for rom som skal være med i hver nye rapport. De andre kan legges til ved behov. Typiske feil skrives med komma mellom.</p>
+          <template x-for="(room, rIdx) in settings.checklist.rooms" :key="room.name">
+            <div class="cl-room">
+              <div class="row">
+                <input type="checkbox" x-model="room.inNew" title="Med i nye rapporter">
+                <button class="cl-name grow" @click="clOpen = clOpen === room.name ? null : room.name">
+                  <span x-text="room.name"></span>
+                  <span class="muted small" x-text="room.appliances ? '(hvitevarer)' : room.items.length + ' punkter'"></span>
+                </button>
+                <button class="mini" @click="clMoveRoom(rIdx, -1)" aria-label="Flytt opp">↑</button>
+                <button class="mini" @click="clMoveRoom(rIdx, 1)" aria-label="Flytt ned">↓</button>
+              </div>
+              <div x-show="clOpen === room.name" class="cl-body">
+                <template x-if="!room.appliances">
+                  <div>
+                    <label class="f">Navn på rom <input type="text" :value="room.name" @change.stop="clRenameRoom(room, $event.target.value)"></label>
+                    <template x-for="(it, iIdx) in room.items" :key="iIdx">
+                      <div class="cl-item">
+                        <div class="row">
+                          <input type="text" class="grow" x-model="it.name" placeholder="Punkt">
+                          <button class="mini" @click="clMoveItem(room, iIdx, -1)">↑</button>
+                          <button class="mini" @click="clMoveItem(room, iIdx, 1)">↓</button>
+                          <button class="mini del" @click="clRemoveItem(room, iIdx)" aria-label="Fjern">×</button>
+                        </div>
+                        <input type="text" placeholder="Typiske feil, med komma mellom" :value="it.options.join(', ')" @change="it.options = lines($event.target.value)">
+                        <select x-model="it.fagperson"><template x-for="f in cl().fagpersoner"><option :value="f" x-text="f" :selected="it.fagperson === f"></option></template></select>
+                      </div>
+                    </template>
+                    <div class="row" style="margin-top:8px">
+                      <button class="btn btn-ghost grow" @click="clAddItem(room)">+ Punkt</button>
+                      <button class="btn btn-danger" @click="clRemoveRoom(rIdx)">Fjern rom</button>
+                    </div>
+                  </div>
+                </template>
+                <template x-if="room.appliances">
+                  <p class="muted small">Hvitevarene redigeres lenger ned.</p>
+                </template>
+              </div>
+            </div>
+          </template>
+          <button class="btn btn-ghost btn-block" style="margin-top:10px" @click="clAddRoom()">+ Nytt rom</button>
+        </section>
+
+        <section class="card">
+          <h2>Hvitevarer</h2>
+          <p class="muted small" style="margin-top:0">Avkryssede hvitevarer legges inn automatisk i nye rapporter.</p>
+          <template x-for="(a, aIdx) in settings.checklist.appliances" :key="aIdx">
+            <div class="cl-item">
+              <div class="row">
+                <input type="checkbox" x-model="a.inNew" title="Med i nye rapporter">
+                <input type="text" class="grow" x-model="a.name">
+                <button class="mini del" @click="clRemoveAppliance(aIdx)" aria-label="Fjern">×</button>
+              </div>
+              <input type="text" placeholder="Typiske feil, med komma mellom" :value="a.defects.join(', ')" @change="a.defects = lines($event.target.value)">
+            </div>
+          </template>
+          <button class="btn btn-ghost btn-block" style="margin-top:10px" @click="clAddAppliance()">+ Hvitevare</button>
+        </section>
+
+        <section class="card">
+          <h2>Fagpersoner</h2>
+          <p class="muted small" style="margin-top:0">Én per linje. Vises i valget «Tiltak / fagperson».</p>
+          <textarea :value="settings.checklist.fagpersoner.join('\n')" @change="settings.checklist.fagpersoner = lines($event.target.value)"></textarea>
+        </section>
+
+        <button class="btn btn-danger btn-block" @click="clReset()">Tilbakestill til standard</button>
+      </main>
+    </div>
+  </template>
+
+  <!-- ============ DEFECTS OVERVIEW ============ -->
+  <template x-if="screen === 'avvik'">
+    <div>
+      <header class="topbar">
+        <div class="topbar-row">
+          <button class="icon-btn" @click="closeDefects()" aria-label="Tilbake">←</button>
+          <h1>Avvik og oppfølging<div class="sub" x-text="defects.length + ' avvik i alle rapporter'"></div></h1>
+        </div>
+      </header>
+      <main>
+        <div class="seg">
+          <button :class="defFilter === 'ikke-utfort' && 'on'" @click="defFilter = 'ikke-utfort'" x-text="'Ikke utført (' + defCount('ikke-utfort') + ')'"></button>
+          <template x-for="st in TILTAK_STATUS">
+            <button :class="defFilter === st && 'on'" @click="defFilter = st" x-text="st + ' (' + defCount(st) + ')'"></button>
+          </template>
+          <button :class="defFilter === 'alle' && 'on'" @click="defFilter = 'alle'" x-text="'Alle (' + defCount('alle') + ')'"></button>
+        </div>
+        <input type="text" placeholder="Søk: adresse, fagperson, rom …" x-model="defSearch" style="margin-bottom:10px">
+        <button class="btn btn-ghost btn-block" style="margin-bottom:12px" @click="exportCsv()" x-text="'Eksporter ' + filteredDefects().length + ' til Excel (CSV)'"></button>
+
+        <template x-if="!filteredDefects().length">
+          <div class="card muted" style="text-align:center">Ingen avvik her.</div>
+        </template>
+        <template x-for="d in filteredDefects()" :key="d.key">
+          <div class="card defcard" :class="'st-' + d.tiltak.status">
+            <div class="row">
+              <div class="grow">
+                <div class="title" x-text="[d.adresse || 'Uten adresse', d.leilighet].filter(Boolean).join(', ')"></div>
+                <div class="muted small" x-text="d.type + ' ' + formatDate(d.dato)"></div>
+              </div>
+              <span class="tag" :class="d.hast === 'Akutt' && 'bad'" x-text="d.hast"></span>
+            </div>
+            <div style="margin-top:6px"><b x-text="d.rom + ' – ' + d.punkt"></b></div>
+            <div class="small" x-show="d.beskrivelse" x-text="d.beskrivelse"></div>
+            <div class="muted small" x-text="[d.fagperson, d.kostnad && (d.kostnad + ' kr, ' + d.belastes.toLowerCase())].filter(Boolean).join(' · ')"></div>
+            <div class="seg tiltak">
+              <template x-for="st in TILTAK_STATUS">
+                <button :class="d.tiltak.status === st && 'on'" @click="setDefectStatus(d, st)" x-text="st"></button>
+              </template>
+            </div>
+            <div class="grid2" x-show="d.tiltak.status !== 'Åpen'">
+              <label class="f">Bestilt <input type="date" :value="d.tiltak.bestilt" @change="setDefectDate(d, 'bestilt', $event.target.value)"></label>
+              <label class="f" x-show="d.tiltak.status === 'Utført'">Utført <input type="date" :value="d.tiltak.utfort" @change="setDefectDate(d, 'utfort', $event.target.value)"></label>
+            </div>
+            <button class="linkbtn" style="padding-left:0" @click="openFromDefects(d)">Åpne rapporten</button>
+          </div>
+        </template>
+      </main>
+    </div>
+  </template>
+
   <!-- ============ EDITOR ============ -->
   <div x-show="screen === 'edit'">
     <template x-if="report">
@@ -347,15 +513,26 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
             <h2>01 · Detaljer</h2>
             <div class="seg">
               <template x-for="t in REPORT_TYPES">
-                <button :class="report.type === t && 'on'" @click="report.type = t" x-text="t"></button>
+                <button :class="report.type === t && 'on'" @click="report.type = t; autoCompare()" x-text="t"></button>
               </template>
             </div>
-            <label class="f">Adresse <input type="text" x-model="report.adresse" placeholder="Gateadresse, postnr." autocomplete="off" list="adr-list"></label>
+            <label class="f">Adresse <input type="text" x-model="report.adresse" placeholder="Gateadresse, postnr." autocomplete="off" list="adr-list" @change="autoCompare()"></label>
             <datalist id="adr-list"><template x-for="a in addressSuggestions()" :key="a"><option :value="a"></option></template></datalist>
             <div class="grid2">
               <label class="f">Leil.nr / bolignr <input type="text" x-model="report.leilighet" placeholder="H0101"></label>
               <label class="f">Dato <input type="date" x-model="report.dato"></label>
             </div>
+            <template x-if="compareCandidates().length || report.compareWith">
+              <label class="f compare" style="margin-bottom:0">Sammenlign med tidligere rapport
+                <select @change="setCompare($event.target.value)">
+                  <option value="" :selected="!report.compareWith">Ingen sammenligning</option>
+                  <template x-for="c in compareCandidates()" :key="c.id">
+                    <option :value="c.id" :selected="report.compareWith === c.id" x-text="c.type + ' ' + formatDate(c.dato) + (c.leietaker.navn ? ' · ' + c.leietaker.navn : '')"></option>
+                  </template>
+                </select>
+                <span class="muted small" x-show="ref" style="font-weight:500">Hvert punkt viser hva som ble registrert da. Nye skader merkes «NY SKADE» og i PDF-en.</span>
+              </label>
+            </template>
           </section>
 
           <section class="card">
@@ -407,12 +584,15 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
                       <div class="item-name">
                         <template x-if="!item.custom"><span x-text="item.name"></span></template>
                         <template x-if="item.custom"><input type="text" x-model="item.name" placeholder="Beskriv punkt"></template>
+                        <span class="newtag" x-show="tagFor(room, item) === 'ny'">NY SKADE</span>
+                        <span class="oldtag" x-show="tagFor(room, item) === 'for'">FANTES FRA FØR</span>
+                        <div class="prev" x-show="refMap" x-text="refMap ? prevText(room, item) : ''"></div>
                       </div>
                       <div class="okfeil">
                         <button class="ok" :class="item.status === 'OK' && 'on'" @click="setStatus(item, 'OK')">OK</button>
                         <button class="bad" :class="item.status === 'FEIL' && 'on'" @click="setStatus(item, 'FEIL')">AVVIK</button>
                       </div>
-                      <button class="x" x-show="room.kind === 'Hvitevarer' || item.custom" @click="removeItem(room, iIdx)" aria-label="Fjern">×</button>
+                      <button class="x" x-show="room.kind === HVITEVARER || item.custom" @click="removeItem(room, iIdx)" aria-label="Fjern">×</button>
                     </div>
 
                     <div class="defect" x-show="item.status === 'FEIL'">
@@ -424,7 +604,7 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
                       <label class="f">Beskrivelse <textarea x-model="item.kommentar" placeholder="Hva er feil, omfang, plassering …"></textarea></label>
                       <div class="grid2">
                         <label class="f">Tiltak / fagperson
-                          <select x-model="item.fagperson"><template x-for="f in FAGPERSONER"><option :value="f" x-text="f" :selected="item.fagperson === f"></option></template></select>
+                          <select x-model="item.fagperson"><template x-for="f in [...new Set([...cl().fagpersoner, item.fagperson])]"><option :value="f" x-text="f" :selected="item.fagperson === f"></option></template></select>
                         </label>
                         <label class="f">Hastegrad
                           <select x-model="item.hast"><template x-for="h in HASTEGRAD"><option :value="h" x-text="h" :selected="item.hast === h"></option></template></select>
@@ -433,6 +613,16 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
                         <label class="f">Belastes
                           <select x-model="item.belastes"><template x-for="b in BELASTES"><option :value="b" x-text="b" :selected="item.belastes === b"></option></template></select>
                         </label>
+                      </div>
+                      <div class="sig-label" style="margin-top:0">Oppfølging</div>
+                      <div class="seg tiltak">
+                        <template x-for="st in TILTAK_STATUS">
+                          <button :class="item.tiltak.status === st && 'on'" @click="setTiltak(item.tiltak, st)" x-text="st"></button>
+                        </template>
+                      </div>
+                      <div class="grid2" x-show="item.tiltak.status !== 'Åpen'">
+                        <label class="f">Bestilt <input type="date" x-model="item.tiltak.bestilt"></label>
+                        <label class="f" x-show="item.tiltak.status === 'Utført'">Utført <input type="date" x-model="item.tiltak.utfort"></label>
                       </div>
                       <div class="photos">
                         <template x-for="(p, pIdx) in item.photos" :key="p.id">
@@ -446,11 +636,11 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
                   </div>
                 </template>
 
-                <template x-if="room.kind === 'Hvitevarer'">
+                <template x-if="room.kind === HVITEVARER">
                   <div style="padding-top:12px">
                     <div class="muted small" style="margin-bottom:6px">Legg til hvitevare:</div>
                     <div class="add-row">
-                      <template x-for="t in Object.keys(APPLIANCES)">
+                      <template x-for="t in cl().appliances.map(a => a.name)">
                         <button @click="addAppliance(room, t)" x-text="'+ ' + t"></button>
                       </template>
                     </div>
@@ -466,7 +656,7 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
           <section class="card">
             <h2>Legg til rom</h2>
             <div class="add-row">
-              <template x-for="t in Object.keys(ROOMS)">
+              <template x-for="t in cl().rooms.map(r => r.name)">
                 <button @click="addRoom(t)" x-text="'+ ' + t"></button>
               </template>
             </div>
