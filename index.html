@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#002664">
+<meta name="description" content="Tilstandsrapport for kommunale boliger: befaring, avvik, bilder, signatur og PDF.">
+<title>Tilstandsrapport</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<script src="vendor/signature_pad.min.js"></script>
+<script src="vendor/jspdf.umd.min.js"></script>
+<script src="vendor/jspdf.plugin.autotable.min.js"></script>
+<script src="app.js"></script>
+<script src="vendor/alpine.min.js" defer></script>
+<style>
+:root {
+  --brand: #002664; --brand-soft: #e6ecf6; --bg: #f1f5f9; --card: #ffffff; --field: #f8fafc;
+  --text: #0f172a; --muted: #64748b; --line: #e2e8f0;
+  --ok: #047857; --ok-soft: #d1fae5; --bad: #be123c; --bad-soft: #ffe4e6; --warn: #b45309;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --brand: #6f97e0; --brand-soft: #1b2740; --bg: #0b1120; --card: #131b2e; --field: #0f172a;
+    --text: #e2e8f0; --muted: #94a3b8; --line: #243049;
+    --ok: #34d399; --ok-soft: #0f2e25; --bad: #fb7185; --bad-soft: #3a1520; --warn: #fbbf24;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+[x-cloak] { display: none !important; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+
+.topbar {
+  position: sticky; top: 0; z-index: 20; background: var(--brand); color: #fff;
+  padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
+}
+@media (prefers-color-scheme: dark) { .topbar { background: #0f1d3d; } }
+.topbar-row { max-width: 680px; margin: 0 auto; display: flex; align-items: center; gap: 10px; }
+.topbar h1 { font-size: 18px; margin: 0; flex: 1; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar .sub { font-size: 12px; opacity: .8; font-weight: 500; }
+.icon-btn { background: rgba(255,255,255,.14); border: 0; color: #fff; border-radius: 10px; min-width: 42px; height: 42px; font-size: 20px; }
+.progress { max-width: 680px; margin: 8px auto 0; height: 6px; border-radius: 3px; background: rgba(255,255,255,.2); overflow: hidden; }
+.progress > div { height: 100%; background: #7dd3fc; transition: width .3s; }
+
+main { max-width: 680px; margin: 0 auto; padding: 16px 16px calc(env(safe-area-inset-bottom) + 40px); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 12px; }
+.card h2 { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--brand); margin: 0 0 12px; }
+.muted { color: var(--muted); font-size: 14px; }
+.small { font-size: 13px; }
+
+label.f { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 10px; }
+label.f > input, label.f > select, label.f > textarea { margin-top: 4px; }
+input[type=text], input[type=tel], input[type=date], input[type=number], input[type=email], input[type=password], select, textarea {
+  width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--field); font-size: 16px; outline: none; min-height: 46px;
+  color: var(--text); font-weight: 400;
+}
+input:focus, select:focus, textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+textarea { min-height: 80px; resize: vertical; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+@media (max-width: 380px) { .grid2 { grid-template-columns: 1fr; } }
+
+.seg { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.seg button { flex: 1 1 auto; border: 1px solid var(--line); background: var(--field); border-radius: 10px; padding: 10px 8px; font-size: 14px; font-weight: 600; }
+.seg button.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 12px; padding: 12px 16px; font-weight: 700; font-size: 15px; min-height: 46px; }
+.btn-primary { background: var(--brand); color: #fff; }
+@media (prefers-color-scheme: dark) { .btn-primary { background: #2a4f99; } }
+.btn-ghost { background: var(--brand-soft); color: var(--brand); }
+.btn-danger { background: var(--bad-soft); color: var(--bad); }
+.btn-block { width: 100%; }
+.btn-big { min-height: 58px; font-size: 17px; border-radius: 14px; }
+.row { display: flex; gap: 8px; align-items: center; }
+.row > .grow { flex: 1; }
+.stack > * + * { margin-top: 8px; }
+
+/* Report list */
+.report { display: flex; gap: 12px; align-items: flex-start; }
+.report .body { flex: 1; min-width: 0; }
+.report .title { font-weight: 700; font-size: 16px; overflow-wrap: anywhere; }
+.tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: var(--brand-soft); color: var(--brand); margin-right: 4px; }
+.tag.bad { background: var(--bad-soft); color: var(--bad); }
+.tag.ok { background: var(--ok-soft); color: var(--ok); }
+.menu { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.menu button { border: 1px solid var(--line); background: var(--field); border-radius: 9px; padding: 7px 10px; font-size: 13px; font-weight: 600; }
+.menu button.del { color: var(--bad); }
+
+/* Rooms */
+.room { padding: 0; overflow: hidden; }
+.room-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; background: none; border: 0; width: 100%; text-align: left; }
+.room-head .bar { width: 5px; align-self: stretch; border-radius: 3px; background: var(--brand); }
+.room-head .name { flex: 1; font-weight: 700; font-size: 16px; }
+.room-head .count { font-size: 13px; color: var(--muted); font-weight: 600; }
+.room-head .chev { color: var(--muted); font-size: 22px; width: 22px; text-align: center; }
+.room.done .room-head .bar { background: var(--ok); }
+.room.has-bad .room-head .bar { background: var(--bad); }
+.room-body { border-top: 1px solid var(--line); padding: 4px 16px 14px; }
+.room-tools { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 0 4px; }
+.room-tools button { font-size: 13px; min-height: 38px; padding: 8px 12px; }
+
+.item { border-bottom: 1px solid var(--line); padding: 12px 0; }
+.item:last-child { border-bottom: 0; }
+.item-row { display: flex; align-items: center; gap: 10px; }
+.item-name { flex: 1; font-weight: 600; font-size: 15px; }
+.item-name input { font-weight: 600; }
+.okfeil { display: flex; gap: 6px; }
+.okfeil button { width: 64px; height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--field); font-weight: 800; font-size: 13px; color: var(--muted); }
+.okfeil button.ok.on { background: var(--ok); border-color: var(--ok); color: #fff; }
+.okfeil button.bad.on { background: var(--bad); border-color: var(--bad); color: #fff; }
+.x { border: 0; background: none; color: var(--muted); font-size: 22px; width: 32px; height: 44px; }
+
+.defect { margin-top: 12px; padding: 12px; border-radius: 12px; background: var(--bad-soft); }
+.defect label.f { color: var(--text); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.chips button { border: 1px solid transparent; background: var(--card); color: var(--bad); border-radius: 99px; padding: 7px 12px; font-size: 13px; font-weight: 600; }
+.chips button.on { background: var(--bad); color: #fff; }
+.photos { display: flex; flex-wrap: wrap; gap: 8px; }
+.photo { position: relative; width: 84px; height: 84px; border-radius: 10px; overflow: hidden; background: var(--line); }
+.photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo button { position: absolute; top: 3px; right: 3px; width: 26px; height: 26px; border-radius: 50%; border: 0; background: rgba(0,0,0,.6); color: #fff; font-size: 15px; line-height: 1; }
+.add-photo { width: 84px; height: 84px; border-radius: 10px; border: 2px dashed var(--muted); display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--muted); cursor: pointer; text-align: center; }
+.add-photo span { font-size: 24px; line-height: 1; }
+.hidden { display: none; }
+
+.add-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.add-row button { border: 2px dashed var(--line); background: none; border-radius: 10px; padding: 8px 12px; font-size: 13px; font-weight: 700; color: var(--brand); }
+
+.sig-wrap { position: relative; }
+canvas.sig { display: block; width: 100%; height: 170px; border: 1px solid var(--line); border-radius: 12px; background: #fff; touch-action: none; }
+.sig-wrap .clear { position: absolute; top: 6px; right: 6px; font-size: 12px; padding: 6px 10px; min-height: 0; }
+.sig-label { font-size: 13px; font-weight: 700; color: var(--muted); margin: 14px 0 6px; }
+
+.summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.summary div { background: var(--field); border: 1px solid var(--line); border-radius: 12px; padding: 10px; text-align: center; }
+.summary b { display: block; font-size: 22px; }
+.summary span { font-size: 12px; color: var(--muted); font-weight: 600; }
+
+.lock { position: fixed; inset: 0; z-index: 100; background: var(--brand); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.lock .box { background: var(--card); border-radius: 20px; padding: 28px 22px; width: 100%; max-width: 320px; text-align: center; }
+.lock input { text-align: center; font-size: 28px; letter-spacing: .4em; margin: 16px 0; }
+
+.toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 20px); transform: translateX(-50%); background: #0f172a; color: #fff; padding: 12px 18px; border-radius: 12px; font-size: 14px; z-index: 200; max-width: calc(100% - 32px); box-shadow: 0 8px 24px rgba(0,0,0,.25); }
+.busy { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 150; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; }
+.logo-prev, .logo-top { background: #fff; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+.logo-prev { width: 64px; height: 46px; padding: 4px; border: 1px solid var(--line); }
+.logo-top { width: 42px; height: 42px; padding: 4px; }
+.logo-prev img, .logo-top img { max-width: 100%; max-height: 100%; }
+.linkbtn { background: none; border: 0; color: var(--brand); font-weight: 700; font-size: 13px; padding: 8px; text-decoration: underline; }
+.credits { background: var(--field); border: 1px solid var(--line); border-radius: 12px; padding: 12px; text-align: center; line-height: 1.6; }
+footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 24px; }
+</style>
+</head>
+<body x-data="app()" x-init="init()">
+
+<!-- Lock screen -->
+<div class="lock" x-show="locked" x-cloak>
+  <div class="box">
+    <div class="muted small" style="font-weight:700;letter-spacing:.08em;text-transform:uppercase">Tilstandsrapport</div>
+    <h2 style="margin:6px 0 0">Skriv inn PIN</h2>
+    <input type="password" inputmode="numeric" autocomplete="off" maxlength="8" x-model="pinInput" @keyup.enter="unlock()" x-ref="pin">
+    <button class="btn btn-primary btn-block" @click="unlock()">Lås opp</button>
+  </div>
+</div>
+
+<div x-show="!locked" x-cloak>
+
+  <!-- ============ LIST ============ -->
+  <template x-if="screen === 'list'">
+    <div>
+      <header class="topbar">
+        <div class="topbar-row">
+          <template x-if="settings.logo"><div class="logo-top"><img :src="settings.logo" alt=""></div></template>
+          <h1>Tilstandsrapport<div class="sub" x-text="[settings.bydel, settings.navn].filter(Boolean).join(' · ')"></div></h1>
+          <button class="icon-btn" @click="screen = 'settings'" aria-label="Innstillinger">⚙</button>
+        </div>
+      </header>
+      <main>
+        <button class="btn btn-ghost btn-block" x-show="updateReady" @click="installUpdate()" style="margin-bottom:12px" x-text="'Ny versjon ' + updateReady + ' er klar. Trykk for å oppdatere'"></button>
+        <button class="btn btn-primary btn-block btn-big" @click="newReport()">+ Ny rapport</button>
+        <div style="height:16px"></div>
+
+        <template x-if="reports.length === 0">
+          <div class="card muted" style="text-align:center">Ingen rapporter ennå. Trykk «Ny rapport» for å starte en befaring.</div>
+        </template>
+
+        <template x-for="r in reports" :key="r.id">
+          <div class="card report">
+            <div class="body">
+              <div class="title" x-text="r.adresse || 'Uten adresse'"></div>
+              <div class="muted small" x-text="[r.leilighet && ('Leil. ' + r.leilighet), formatDate(r.dato), r.leietaker.navn].filter(Boolean).join(' · ')"></div>
+              <div style="margin-top:6px">
+                <span class="tag" x-text="r.type"></span>
+                <span class="tag bad" x-show="r.feil > 0" x-text="r.feil + ' avvik'"></span>
+                <span class="tag ok" x-show="r.pdfAt" x-text="'PDF ' + formatDate(r.pdfAt)"></span>
+              </div>
+              <div class="menu">
+                <button @click="openReport(r.id)">Åpne</button>
+                <button @click="copyReport(r.id)">Ny fra denne</button>
+                <button class="del" @click="deleteReport(r.id)">Slett</button>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <footer><span x-text="'Versjon ' + appVersion + ' · Data lagres kun på denne enheten'"></span><br>Utviklet av Ivan St.<br><button class="linkbtn" @click="checkUpdate()">Se etter oppdatering</button></footer>
+      </main>
+    </div>
+  </template>
+
+  <!-- ============ SETUP (first start) + SETTINGS ============ -->
+  <template x-if="screen === 'settings' || screen === 'setup'">
+    <div>
+      <header class="topbar">
+        <div class="topbar-row">
+          <button class="icon-btn" x-show="screen === 'settings'" @click="saveSettings(); screen = 'list'" aria-label="Tilbake">←</button>
+          <h1 x-text="screen === 'setup' ? 'Velkommen' : 'Innstillinger'"></h1>
+        </div>
+      </header>
+      <main>
+        <template x-if="screen === 'setup'">
+          <section class="card">
+            <h2>Kom i gang</h2>
+            <p style="margin-top:0">Fyll inn det du vil ha med i rapportene. <b>Alt er valgfritt</b> og kan endres senere under Innstillinger.</p>
+            <p class="muted small">Har du brukt appen før, eller fått en profil fra en kollega? Hent den inn her:</p>
+            <label class="btn btn-ghost btn-block">Importer profil eller sikkerhetskopi
+              <input type="file" accept=".json,application/json" class="hidden" @change="importBackup($event)">
+            </label>
+          </section>
+        </template>
+
+        <section class="card">
+          <h2>Boligforvalter</h2>
+          <label class="f">Navn <input type="text" x-model="settings.navn" @change="saveSettings()" placeholder="Ditt navn"></label>
+          <label class="f">Stilling <input type="text" x-model="settings.stilling" @change="saveSettings()"></label>
+          <div class="grid2">
+            <label class="f">Telefon <input type="tel" x-model="settings.telefon" @change="saveSettings()"></label>
+            <label class="f">E-post <input type="email" x-model="settings.epost" @change="saveSettings()"></label>
+          </div>
+          <p class="muted small" style="margin:0">Vises i toppen av PDF-en og under signaturen.</p>
+        </section>
+
+        <section class="card">
+          <h2>Bydel / arbeidsgiver</h2>
+          <div class="grid2">
+            <label class="f">Bydel / enhet <input type="text" x-model="settings.bydel" @change="saveSettings()" placeholder="F.eks. Bydel …"></label>
+            <label class="f">Kommune <input type="text" x-model="settings.kommune" @change="saveSettings()" placeholder="F.eks. … kommune"></label>
+          </div>
+          <div class="sig-label" style="margin-top:4px">Logo</div>
+          <div class="row">
+            <template x-if="settings.logo">
+              <div class="logo-prev"><img :src="settings.logo" alt="Logo"></div>
+            </template>
+            <label class="btn btn-ghost grow"><span x-text="settings.logo ? 'Bytt logo' : 'Legg til logo'"></span>
+              <input type="file" accept="image/*" class="hidden" @change="setLogo($event)">
+            </label>
+            <button class="btn btn-danger" x-show="settings.logo" @click="settings.logo = ''; saveSettings()">Fjern</button>
+          </div>
+          <p class="muted small" style="margin-bottom:0">Vises øverst i PDF-en. Bruk gjerne PNG med gjennomsiktig bakgrunn.</p>
+        </section>
+
+        <section class="card">
+          <h2>Faste adresser</h2>
+          <p class="muted small" style="margin-top:0">Én adresse per linje. De blir foreslått når du skriver adresse i en rapport.</p>
+          <textarea :value="settings.adresser.join('\n')" @change="setAddresses($event.target.value)" placeholder="Gateadresse 1, 0000 Sted"></textarea>
+        </section>
+
+        <section class="card">
+          <h2>PIN-kode</h2>
+          <p class="muted small" style="margin-top:0">Låser appen ved oppstart og etter 5 minutter i bakgrunnen. PIN hindrer at andre åpner appen på telefonen, men dataene er ikke kryptert.</p>
+          <template x-if="!settings.pinHash">
+            <div class="row">
+              <input class="grow" type="password" inputmode="numeric" maxlength="8" placeholder="Ny PIN (4–8 siffer)" x-model="newPin">
+              <button class="btn btn-primary" @click="setPin()">Sett PIN</button>
+            </div>
+          </template>
+          <template x-if="settings.pinHash">
+            <div class="row">
+              <span class="grow tag ok" style="text-align:center;padding:10px">PIN er på</span>
+              <button class="btn btn-danger" @click="removePin()">Fjern PIN</button>
+            </div>
+          </template>
+        </section>
+
+        <template x-if="screen === 'setup'">
+          <div>
+            <button class="btn btn-primary btn-block btn-big" @click="finishSetup()">Start</button>
+            <footer>Tilstandsrapport · Utviklet av Ivan St.</footer>
+          </div>
+        </template>
+
+        <template x-if="screen === 'settings'">
+          <div>
+            <section class="card stack">
+              <h2>Sikkerhetskopi</h2>
+              <p class="muted small" style="margin-top:0">Alt ligger bare på denne enheten. <b>Profil</b> er innstillingene over (navn, bydel, logo, adresser). <b>Sikkerhetskopi</b> er profil + alle rapporter. Bruk dem for å flytte data til ny telefon, mellom nettleser og app, eller til en kollega.</p>
+              <button class="btn btn-ghost btn-block" @click="exportProfile()">Eksporter profil</button>
+              <button class="btn btn-ghost btn-block" @click="exportBackup()">Eksporter sikkerhetskopi (alt)</button>
+              <label class="btn btn-ghost btn-block">Importer profil eller sikkerhetskopi
+                <input type="file" accept=".json,application/json" class="hidden" @change="importBackup($event)">
+              </label>
+            </section>
+
+            <section class="card stack">
+              <h2>Om appen</h2>
+              <div class="credits">
+                <b>Tilstandsrapport</b>
+                <div x-text="'Versjon ' + appVersion"></div>
+                <div>Utviklet av <b>Ivan St.</b></div>
+                <div class="muted small">Bruker Alpine.js, jsPDF, jsPDF-AutoTable og signature_pad (MIT-lisens).</div>
+              </div>
+              <button class="btn btn-ghost btn-block" @click="checkUpdate()">Se etter oppdatering</button>
+              <button class="btn btn-ghost btn-block" @click="screen = 'setup'">Vis oppstartsveiviser</button>
+              <button class="btn btn-danger btn-block" @click="deleteAll()">Slett alle data</button>
+            </section>
+          </div>
+        </template>
+      </main>
+    </div>
+  </template>
+
+  <!-- ============ EDITOR ============ -->
+  <div x-show="screen === 'edit'">
+    <template x-if="report">
+      <div>
+        <header class="topbar">
+          <div class="topbar-row">
+            <button class="icon-btn" @click="closeReport()" aria-label="Tilbake">←</button>
+            <h1><span x-text="report.adresse || 'Ny rapport'"></span><div class="sub" x-text="report.type + ' · ' + progressText()"></div></h1>
+          </div>
+          <div class="progress"><div :style="'width:' + progressPct() + '%'"></div></div>
+        </header>
+
+        <main>
+          <!-- Details -->
+          <section class="card">
+            <h2>01 · Detaljer</h2>
+            <div class="seg">
+              <template x-for="t in REPORT_TYPES">
+                <button :class="report.type === t && 'on'" @click="report.type = t" x-text="t"></button>
+              </template>
+            </div>
+            <label class="f">Adresse <input type="text" x-model="report.adresse" placeholder="Gateadresse, postnr." autocomplete="off" list="adr-list"></label>
+            <datalist id="adr-list"><template x-for="a in addressSuggestions()" :key="a"><option :value="a"></option></template></datalist>
+            <div class="grid2">
+              <label class="f">Leil.nr / bolignr <input type="text" x-model="report.leilighet" placeholder="H0101"></label>
+              <label class="f">Dato <input type="date" x-model="report.dato"></label>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2>02 · Leietaker</h2>
+            <label class="f">Navn <input type="text" x-model="report.leietaker.navn" autocomplete="off"></label>
+            <div class="grid2">
+              <label class="f">Telefon <input type="tel" x-model="report.leietaker.telefon" autocomplete="off"></label>
+              <label class="f">E-post <input type="email" x-model="report.leietaker.epost" autocomplete="off"></label>
+            </div>
+            <label class="f" style="margin-bottom:0">Til stede under befaring
+              <select x-model="report.leietaker.tilstede">
+                <option>Ja</option><option>Nei</option><option>Representant</option>
+              </select>
+            </label>
+          </section>
+
+          <section class="card">
+            <h2>03 · Målere og nøkler</h2>
+            <div class="grid2">
+              <label class="f">Strøm målernr <input type="text" x-model="report.strom.maler" inputmode="numeric"></label>
+              <label class="f">Strøm stand (kWh) <input type="text" x-model="report.strom.stand" inputmode="decimal"></label>
+            </div>
+            <div class="grid2">
+              <label class="f"><span x-text="'Nøkler ' + nokkelLabel().toLowerCase()"></span> <input type="number" min="0" x-model="report.nokler.nokler" inputmode="numeric"></label>
+              <label class="f">Kort / brikker <input type="number" min="0" x-model="report.nokler.brikker" inputmode="numeric"></label>
+            </div>
+            <label class="f" style="margin-bottom:0">Merknad nøkler / målere <input type="text" x-model="report.nokler.merknad" placeholder="F.eks. postkassenøkkel, systemnøkkel nr."></label>
+          </section>
+
+          <!-- Rooms -->
+          <template x-for="(room, rIdx) in report.rooms" :key="room.id">
+            <section class="card room" :class="{ 'done': roomStats(room).done && !roomStats(room).feil, 'has-bad': roomStats(room).feil }">
+              <button class="room-head" @click="toggleRoom(room)">
+                <span class="bar"></span>
+                <span class="name" x-text="roomLabel(room)"></span>
+                <span class="count" x-text="roomStats(room).checked + '/' + room.items.length + (roomStats(room).feil ? ' · ' + roomStats(room).feil + ' avvik' : '')"></span>
+                <span class="chev" x-text="openRoom === room.id ? '−' : '+'"></span>
+              </button>
+
+              <div class="room-body" x-show="openRoom === room.id">
+                <div class="room-tools">
+                  <button class="btn btn-ghost" x-show="room.items.length" @click="allOk(room)">✓ Resten OK</button>
+                  <button class="btn btn-danger" @click="removeRoom(rIdx)">Fjern rom</button>
+                </div>
+
+                <template x-for="(item, iIdx) in room.items" :key="item.id">
+                  <div class="item">
+                    <div class="item-row">
+                      <div class="item-name">
+                        <template x-if="!item.custom"><span x-text="item.name"></span></template>
+                        <template x-if="item.custom"><input type="text" x-model="item.name" placeholder="Beskriv punkt"></template>
+                      </div>
+                      <div class="okfeil">
+                        <button class="ok" :class="item.status === 'OK' && 'on'" @click="setStatus(item, 'OK')">OK</button>
+                        <button class="bad" :class="item.status === 'FEIL' && 'on'" @click="setStatus(item, 'FEIL')">AVVIK</button>
+                      </div>
+                      <button class="x" x-show="room.kind === 'Hvitevarer' || item.custom" @click="removeItem(room, iIdx)" aria-label="Fjern">×</button>
+                    </div>
+
+                    <div class="defect" x-show="item.status === 'FEIL'">
+                      <div class="chips" x-show="item.options.length">
+                        <template x-for="opt in item.options">
+                          <button :class="item.selected.includes(opt) && 'on'" @click="toggleOption(item, opt)" x-text="opt"></button>
+                        </template>
+                      </div>
+                      <label class="f">Beskrivelse <textarea x-model="item.kommentar" placeholder="Hva er feil, omfang, plassering …"></textarea></label>
+                      <div class="grid2">
+                        <label class="f">Tiltak / fagperson
+                          <select x-model="item.fagperson"><template x-for="f in FAGPERSONER"><option :value="f" x-text="f" :selected="item.fagperson === f"></option></template></select>
+                        </label>
+                        <label class="f">Hastegrad
+                          <select x-model="item.hast"><template x-for="h in HASTEGRAD"><option :value="h" x-text="h" :selected="item.hast === h"></option></template></select>
+                        </label>
+                        <label class="f">Anslått kostnad (kr) <input type="number" min="0" inputmode="numeric" x-model="item.kostnad"></label>
+                        <label class="f">Belastes
+                          <select x-model="item.belastes"><template x-for="b in BELASTES"><option :value="b" x-text="b" :selected="item.belastes === b"></option></template></select>
+                        </label>
+                      </div>
+                      <div class="photos">
+                        <template x-for="(p, pIdx) in item.photos" :key="p.id">
+                          <div class="photo"><img :src="p.data" alt=""><button @click="removePhoto(item, pIdx)" aria-label="Slett bilde">×</button></div>
+                        </template>
+                        <label class="add-photo"><span>📷</span>Bilde
+                          <input type="file" accept="image/*" multiple class="hidden" @change="addPhotos($event, item)">
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+
+                <template x-if="room.kind === 'Hvitevarer'">
+                  <div style="padding-top:12px">
+                    <div class="muted small" style="margin-bottom:6px">Legg til hvitevare:</div>
+                    <div class="add-row">
+                      <template x-for="t in Object.keys(APPLIANCES)">
+                        <button @click="addAppliance(room, t)" x-text="'+ ' + t"></button>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+                <div style="padding-top:12px">
+                  <button class="btn btn-ghost small" style="min-height:38px;padding:8px 12px" @click="addCustomItem(room)">+ Eget punkt</button>
+                </div>
+              </div>
+            </section>
+          </template>
+
+          <section class="card">
+            <h2>Legg til rom</h2>
+            <div class="add-row">
+              <template x-for="t in Object.keys(ROOMS)">
+                <button @click="addRoom(t)" x-text="'+ ' + t"></button>
+              </template>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2>Generell merknad</h2>
+            <textarea x-model="report.merknad" placeholder="Helhetsinntrykk, avtaler med leietaker, frister …"></textarea>
+          </section>
+
+          <!-- Finish -->
+          <section class="card">
+            <h2>Signatur og rapport</h2>
+            <div class="summary">
+              <div><b x-text="stats(report).checked + '/' + stats(report).total"></b><span>kontrollert</span></div>
+              <div><b x-text="stats(report).feil" :style="stats(report).feil && 'color:var(--bad)'"></b><span>avvik</span></div>
+              <div><b x-text="stats(report).photos"></b><span>bilder</span></div>
+            </div>
+
+            <div class="sig-label" x-text="'Boligforvalter: ' + (settings.navn || '')"></div>
+            <div class="sig-wrap">
+              <canvas class="sig" id="sig-forvalter"></canvas>
+              <button class="btn btn-danger clear" @click="clearSig('forvalter')">Slett</button>
+            </div>
+
+            <div class="sig-label" x-text="'Leietaker: ' + (report.leietaker.navn || '')"></div>
+            <div class="sig-wrap">
+              <canvas class="sig" id="sig-leietaker"></canvas>
+              <button class="btn btn-danger clear" @click="clearSig('leietaker')">Slett</button>
+            </div>
+
+            <div style="height:16px"></div>
+            <div class="stack">
+              <button class="btn btn-primary btn-block btn-big" @click="makePdf('share')">Del rapport (PDF)</button>
+              <button class="btn btn-ghost btn-block" @click="makePdf('save')">Lagre PDF</button>
+            </div>
+          </section>
+
+          <footer>Lagres automatisk</footer>
+        </main>
+      </div>
+    </template>
+  </div>
+</div>
+
+<div class="busy" x-show="busy" x-cloak x-text="busy"></div>
+<div class="toast" x-show="toastMsg" x-cloak x-transition.opacity x-text="toastMsg"></div>
+
+<script>
+if ('serviceWorker' in navigator && location.protocol === 'https:' && !window.TilstandAndroid) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>

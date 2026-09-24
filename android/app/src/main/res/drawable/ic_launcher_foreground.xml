@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Clipboard with a check mark under a roof; drawn in a 512 grid and scaled into the 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group android:scaleX="0.165" android:scaleY="0.165" android:translateX="11.76" android:translateY="15.39">
+        <path android:strokeColor="#FF7DD3FC" android:strokeWidth="26" android:strokeLineCap="round" android:strokeLineJoin="round"
+            android:pathData="M150,130L256,60L362,130" />
+        <path android:fillColor="#FFFFFFFF"
+            android:pathData="M174,112h164a28,28 0,0 1,28 28v240a28,28 0,0 1,-28 28h-164a28,28 0,0 1,-28 -28v-240a28,28 0,0 1,28 -28z" />
+        <path android:fillColor="#FF7DD3FC"
+            android:pathData="M220,92h72a14,14 0,0 1,14 14v18a14,14 0,0 1,-14 14h-72a14,14 0,0 1,-14 -14v-18a14,14 0,0 1,14 -14z" />
+        <path android:strokeColor="#FF002664" android:strokeWidth="34" android:strokeLineCap="round" android:strokeLineJoin="round"
+            android:pathData="M196,270L240,314L322,214" />
+        <path android:fillColor="#FFC7D2FE"
+            android:pathData="M198,352h116a8,8 0,0 1,0 16h-116a8,8 0,0 1,0 -16z" />
+    </group>
+</vector>
