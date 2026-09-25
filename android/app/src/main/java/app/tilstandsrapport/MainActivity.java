@@ -60,9 +60,16 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        Ota.prepare(this);
+
+        // Downloaded web content (see Ota) wins over the copy inside the APK.
+        final WebViewAssetLoader.AssetsPathHandler bundled = new WebViewAssetLoader.AssetsPathHandler(this);
         final WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
                 .setDomain(HOST)
-                .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
+                .addPathHandler("/assets/", path -> {
+                    WebResourceResponse r = Ota.serve(this, path);
+                    return r != null ? r : bundled.handle(path);
+                })
                 .build();
 
         webView = new WebView(this);
@@ -159,7 +166,7 @@ public class MainActivity extends Activity {
 
     /* ---------- update check ---------- */
 
-    private static final long UPDATE_CHECK_INTERVAL = 12 * 60 * 60 * 1000L;
+    private static final long UPDATE_CHECK_INTERVAL = 60 * 60 * 1000L;
 
     /**
      * Looks up the latest GitHub Release (tagged v1.0.<versionCode>) and offers to download it
@@ -174,6 +181,15 @@ public class MainActivity extends Activity {
         if (manual) toast("Ser etter oppdatering …");
 
         new Thread(() -> {
+            // Web content first: new content is downloaded quietly and used from the next launch;
+            // a manual check switches to it right away.
+            try {
+                if (Ota.check(this) && manual) runOnUiThread(() -> {
+                    if (Ota.apply(this)) webView.reload();
+                });
+            } catch (Exception ignored) {
+                // Offline: the content stays as it is.
+            }
             try {
                 URL api = new URL("https://api.github.com/repos/" + BuildConfig.UPDATE_REPO + "/releases/latest");
                 HttpURLConnection c = (HttpURLConnection) api.openConnection();
@@ -191,7 +207,8 @@ public class MainActivity extends Activity {
                 String tag = new JSONObject(body).optString("tag_name", "");
                 final long latest = Long.parseLong(tag.substring(tag.lastIndexOf('.') + 1));
                 final String name = tag.startsWith("v") ? tag.substring(1) : tag;
-                if (latest > installedVersionCode()) runOnUiThread(() -> showUpdateDialog(name));
+                // A newer release with the same Android part only has web changes, which Ota brings in.
+                if (latest > installedVersionCode() && !Ota.sameNative(body)) runOnUiThread(() -> showUpdateDialog(name));
                 else if (manual) toast("Du har nyeste versjon");
             } catch (Exception e) {
                 // No network, rate limit or unexpected response: the automatic check tries again later.
@@ -204,6 +221,13 @@ public class MainActivity extends Activity {
         runOnUiThread(() -> Toast.makeText(this, msg, Toast.LENGTH_SHORT).show());
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        SelfUpdate.resume(this);
+        checkForUpdate(false);
+    }
+
     private long installedVersionCode() throws Exception {
         PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
         return Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
@@ -213,15 +237,8 @@ public class MainActivity extends Activity {
         if (isFinishing()) return;
         new AlertDialog.Builder(this)
                 .setTitle("Ny versjon")
-                .setMessage("Tilstandsrapport " + version + " er klar. Last ned og åpne filen for å oppdatere. Rapportene dine beholdes.")
-                .setPositiveButton("Last ned", (d, w) -> {
-                    Uri apk = Uri.parse("https://github.com/" + BuildConfig.UPDATE_REPO
-                            + "/releases/latest/download/" + APK_NAME);
-                    try {
-                        startActivity(new Intent(Intent.ACTION_VIEW, apk));
-                    } catch (ActivityNotFoundException ignored) {
-                    }
-                })
+                .setMessage("Tilstandsrapport " + version + " er klar. Installere nå? Rapportene dine beholdes.")
+                .setPositiveButton("Oppdater", (d, w) -> SelfUpdate.start(this))
                 .setNegativeButton("Senere", null)
                 .show();
     }
@@ -271,7 +288,7 @@ public class MainActivity extends Activity {
     private class Bridge {
         @JavascriptInterface
         public String getVersion() {
-            return BuildConfig.VERSION_NAME;
+            return BuildConfig.VERSION_NAME + Ota.label(MainActivity.this);
         }
 
         @JavascriptInterface
