@@ -13,11 +13,11 @@ tasks.register('copyWebApp', Copy) {
 preBuild.dependsOn copyWebApp
 
 android {
-    namespace 'app.tilstandsrapport'
+    namespace 'app.boligforvalter'
     compileSdk 35
 
     defaultConfig {
-        applicationId 'app.tilstandsrapport'
+        applicationId 'app.boligforvalter'
         minSdk 26
         targetSdk 34  // 35 forces edge-to-edge; the page does not pad for system bars in a WebView
         // CI passes the run number so each new APK installs over the previous one.
@@ -29,14 +29,14 @@ android {
         // Commit of the bundled web app, and a fingerprint of the rest of the APK (see Ota and the workflow).
         buildConfigField 'String', 'WEB_SHA', "\"${System.getenv('GITHUB_SHA') ?: ''}\""
         buildConfigField 'String', 'NATIVE_HASH', "\"${System.getenv('NATIVE_HASH') ?: ''}\""
-        buildConfigField 'String', 'UPDATE_REPO', "\"${System.getenv('GITHUB_REPOSITORY') ?: 'kosmet-crypto/tilstandsrapport'}\""
+        buildConfigField 'String', 'UPDATE_REPO', "\"${System.getenv('GITHUB_REPOSITORY') ?: 'kosmet-crypto/oslo-boligforvalter'}\""
     }
 
     signingConfigs {
         // Fixed key committed to the repo so every build can update the installed app.
         // Fine for sideloading; use a private key (GitHub secret) before publishing to Google Play.
         release {
-            storeFile file('tilstand.keystore')
+            storeFile file('boligforvalter.keystore')
             storePassword 'tilstand'
             keyAlias 'tilstand'
             keyPassword 'tilstand'

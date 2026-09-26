@@ -1,4 +1,4 @@
-package app.tilstandsrapport;
+package app.boligforvalter;
 
 import android.app.Activity;
 import android.app.Notification;
@@ -26,14 +26,14 @@ import java.io.OutputStream;
  */
 public class SelfUpdate extends BroadcastReceiver {
 
-    private static final String APK = "tilstandsrapport.apk";
+    private static final String APK = "boligforvalter.apk";
     private static final String EXTRA_QUIET = "quiet";
 
     /** Update button: asks once for "install unknown apps", then downloads and installs. */
     static void start(Activity a) {
         if (!a.getPackageManager().canRequestPackageInstalls()) {
             a.getSharedPreferences("update", Context.MODE_PRIVATE).edit().putBoolean("resumeInstall", true).apply();
-            Toast.makeText(a, "Tillat Boligforvaltning å installere oppdateringer, og gå tilbake", Toast.LENGTH_LONG).show();
+            Toast.makeText(a, "Tillat Oslo Boligforvalter å installere oppdateringer, og gå tilbake", Toast.LENGTH_LONG).show();
             try {
                 a.startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + a.getPackageName())));
             } catch (Exception e) {
@@ -122,7 +122,7 @@ public class SelfUpdate extends BroadcastReceiver {
         PendingIntent open = PendingIntent.getActivity(ctx, 5, launch, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         nm.notify(77, new Notification.Builder(ctx, "updates")
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
-                .setContentTitle("Boligforvaltning er oppdatert")
+                .setContentTitle("Oslo Boligforvalter er oppdatert")
                 .setContentText("Trykk for å åpne den nye versjonen.")
                 .setContentIntent(open)
                 .setAutoCancel(true)

@@ -6,8 +6,8 @@
 <meta name="app-native" content="1">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#002664">
-<meta name="description" content="Boligforvaltning: flytteprotokoller, tilstandsrapporter, avvik og oppfølging for kommunale boliger.">
-<title>Boligforvaltning</title>
+<meta name="description" content="Oslo Boligforvalter: flytteprotokoller, tilstandsrapporter, avvik og oppfølging for kommunale boliger.">
+<title>Oslo Boligforvalter</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -228,7 +228,7 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
 <!-- Lock screen -->
 <div class="lock" x-show="locked" x-cloak>
   <div class="box">
-    <div class="muted small" style="font-weight:700;letter-spacing:.08em;text-transform:uppercase">Boligforvaltning</div>
+    <div class="muted small" style="font-weight:700;letter-spacing:.08em;text-transform:uppercase">Oslo Boligforvalter</div>
     <h2 style="margin:6px 0 0">Skriv inn PIN</h2>
     <input type="password" inputmode="numeric" autocomplete="off" maxlength="8" x-model="pinInput" @keyup.enter="unlock()" x-ref="pin">
     <button class="btn btn-primary btn-block" @click="unlock()">Lås opp</button>
@@ -243,7 +243,7 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
       <header class="topbar">
         <div class="topbar-row">
           <template x-if="settings.logo"><div class="logo-top"><img :src="settings.logo" alt=""></div></template>
-          <h1>Boligforvaltning<div class="sub" x-text="[settings.bydel, settings.navn].filter(Boolean).join(' · ')"></div></h1>
+          <h1>Oslo Boligforvalter<div class="sub" x-text="[settings.bydel, settings.navn].filter(Boolean).join(' · ')"></div></h1>
         </div>
       </header>
       <main class="with-tabs">
@@ -417,7 +417,7 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
         <template x-if="screen === 'setup'">
           <div>
             <button class="btn btn-primary btn-block btn-big" @click="finishSetup()">Start</button>
-            <footer>Boligforvaltning · Utviklet av Ivan St.</footer>
+            <footer>Oslo Boligforvalter · Utviklet av Ivan St.</footer>
           </div>
         </template>
 
@@ -458,7 +458,7 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
 
             <section class="card stack">
               <h2>Sikkerhetskopi</h2>
-              <p class="muted small" style="margin-top:0">Alt ligger bare på denne enheten. <b>Profil</b> er innstillingene (navn, bydel, logo, adresser, sjekklister). <b>Sikkerhetskopi</b> er profil + alle dokumenter, med leietakere bare som initialer. Bruk dem for å flytte data til ny telefon, mellom nettleser og app, eller til en kollega. Sikkerhetskopi fra den gamle Flytteprotokoll-appen kan også importeres.</p>
+              <p class="muted small" style="margin-top:0">Alt ligger bare på denne enheten. <b>Profil</b> er innstillingene (navn, bydel, logo, adresser, sjekklister). <b>Sikkerhetskopi</b> er profil + alle dokumenter, med leietakere bare som initialer. Bruk dem for å flytte data til ny telefon, mellom nettleser og app, eller til en kollega.</p>
               <button class="btn btn-ghost btn-block" @click="exportProfile()">Eksporter profil</button>
               <button class="btn btn-ghost btn-block" @click="exportBackup()">Eksporter sikkerhetskopi (alt)</button>
               <label class="btn btn-ghost btn-block">Importer profil eller sikkerhetskopi
@@ -469,7 +469,7 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
             <section class="card stack">
               <h2>Om appen</h2>
               <div class="credits">
-                <b>Boligforvaltning</b>
+                <b>Oslo Boligforvalter</b>
                 <div class="muted small">Flytteprotokoll og tilstandsrapport i én app</div>
                 <div x-text="'Versjon ' + appVersion"></div>
                 <div>Utviklet av <b>Ivan St.</b></div>
@@ -680,12 +680,15 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
               <label class="f">Telefon (bare i PDF) <input type="tel" x-model="report.leietaker.telefon" autocomplete="off"></label>
               <label class="f">Til stede
                 <select x-model="report.leietaker.tilstede">
-                  <option>Ja</option><option>Nei</option><option>Representant</option>
+                  <option>Ja</option><option>Nei</option>
                 </select>
               </label>
             </div>
-            <label class="check"><input type="checkbox" x-model="report.fullmakt"> Møtt med fullmakt</label>
-            <label class="f" x-show="report.fullmakt" style="margin:10px 0 0">Navn på representant <input type="text" x-model="report.fullmektig" autocomplete="off"></label>
+            <div class="sig-label" style="margin-top:4px">Annen person til stede (valgfritt)</div>
+            <div class="grid2">
+              <label class="f" style="margin-bottom:0">Navn <input type="text" x-model="report.ekstra.navn" autocomplete="off"></label>
+              <label class="f" style="margin-bottom:0">Rolle <input type="text" x-model="report.ekstra.rolle" placeholder="F.eks. tolk, kollega" autocomplete="off"></label>
+            </div>
           </section>
 
           <section class="card">
@@ -859,10 +862,18 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
               <button class="btn btn-danger clear" @click="clearSig('forvalter')">Slett</button>
             </div>
 
-            <div class="sig-label" x-text="report.fullmakt ? 'Representant: ' + (report.fullmektig || '') : 'Leietaker: ' + (report.leietaker.navn || '')"></div>
+            <div class="sig-label" x-text="'Leietaker: ' + (report.leietaker.navn || '')"></div>
             <div class="sig-wrap">
               <canvas class="sig" id="sig-leietaker"></canvas>
               <button class="btn btn-danger clear" @click="clearSig('leietaker')">Slett</button>
+            </div>
+            <!-- Third pad only when another person is named; resize it when it appears. -->
+            <div x-show="report.ekstra.navn" x-effect="report.ekstra.navn; setTimeout(() => resizePads(), 50)">
+              <div class="sig-label" x-text="[report.ekstra.rolle, report.ekstra.navn].filter(Boolean).join(': ')"></div>
+              <div class="sig-wrap">
+                <canvas class="sig" id="sig-ekstra"></canvas>
+                <button class="btn btn-danger clear" @click="clearSig('ekstra')">Slett</button>
+              </div>
             </div>
             <p class="muted small" x-show="report.locked && report.anon && !report.signatures.leietaker">Leietakers signatur finnes bare i PDF-en som ble sendt.</p>
           </section>
@@ -893,7 +904,7 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
 <div class="toast" x-show="toastMsg" x-cloak x-transition.opacity x-text="toastMsg"></div>
 
 <script>
-if ('serviceWorker' in navigator && location.protocol === 'https:' && !window.TilstandAndroid) {
+if ('serviceWorker' in navigator && location.protocol === 'https:' && !window.BoligAndroid) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 </script>

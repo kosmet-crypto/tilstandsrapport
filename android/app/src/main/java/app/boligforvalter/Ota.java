@@ -1,4 +1,4 @@
-package app.tilstandsrapport;
+package app.boligforvalter;
 
 import android.content.Context;
 import android.content.SharedPreferences;

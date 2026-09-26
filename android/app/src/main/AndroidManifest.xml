@@ -13,10 +13,10 @@
     </queries>
 
     <application
-        android:label="Boligforvaltning"
+        android:label="Oslo Boligforvalter"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
-        android:theme="@style/Theme.Tilstand"
+        android:theme="@style/Theme.Bolig"
         android:allowBackup="false"
         android:supportsRtl="true">
 

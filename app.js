@@ -1,7 +1,7 @@
-/* Tilstandsrapport: all logic for index.html (Alpine.js component + PDF). */
+/* Oslo Boligforvalter: all logic for index.html (Alpine.js component + PDF). */
 
 // Bump on every change: the web version compares this with the published app.js to find updates.
-const WEB_VERSION = '2.0.0';
+const WEB_VERSION = '2.1.0';
 
 const REPORT_TYPES = ['Innflytting', 'Utflytting', 'Periodisk kontroll', 'Befaring'];
 const FAGPERSONER = ['Vaktmester', 'Elektriker', 'Rørlegger', 'Maler', 'Snekker', 'Flislegger',
@@ -149,13 +149,14 @@ function newReportData(type = 'Innflytting') {
     locked: 0, anon: false, korrigerer: null, korrigererDato: null,
     type, adresse: '', leilighet: '', dato: today(),
     leietaker: { navn: '', telefon: '', tilstede: 'Ja' },
-    fullmakt: false, fullmektig: '', tidligereLeietaker: '',
+    ekstra: { navn: '', rolle: '' },   // optional third person present, e.g. interpreter or colleague
+    tidligereLeietaker: '',
     strom: { maler: '', stand: '' }, malerFoto: [],
     keys: DEFAULT_KEYS.map(n => makeKey(n)),
     nokler: { merknad: '' },
     rooms: CHECKLIST.rooms.filter(r => r.inNew).map(r => makeRoom(r.name)),
     merknad: '',
-    signatures: { forvalter: null, leietaker: null },
+    signatures: { forvalter: null, leietaker: null, ekstra: null },
     compareWith: null,
   };
 }
@@ -166,16 +167,13 @@ function upgradeReport(r) {
     if (!('prisManual' in it)) it.prisManual = !!it.kostnad;
   }
   if (!('compareWith' in r)) r.compareWith = null;
-  if (!r.keys) {
-    // Before 2.0 keys were two counters.
-    const n = r.nokler || {};
-    r.keys = [makeKey('Nøkler', n.nokler || ''), makeKey('Kort / brikker', n.brikker || '')];
-    r.nokler = { merknad: n.merknad || '' };
-  }
+  if (!r.keys) r.keys = DEFAULT_KEYS.map(n => makeKey(n));
+  if (!r.nokler) r.nokler = { merknad: '' };
   if (!r.malerFoto) r.malerFoto = [];
   if (!('locked' in r)) r.locked = 0;
   if (!('anon' in r)) r.anon = false;
-  if (!('fullmakt' in r)) { r.fullmakt = false; r.fullmektig = ''; }
+  if (!r.ekstra) r.ekstra = { navn: '', rolle: '' };
+  if (!('ekstra' in r.signatures)) r.signatures.ekstra = null;
   if (!('tidligereLeietaker' in r)) r.tidligereLeietaker = '';
   if (r.leietaker && 'epost' in r.leietaker) delete r.leietaker.epost;
   return r;
@@ -189,14 +187,13 @@ function initials(name) {
     .map(part => part.split('-').filter(Boolean).map(p => p[0].toUpperCase() + '.').join('-')).join(' ');
 }
 /**
- * What may be kept in the history and in exports: the tenant (and a representative) only as
+ * What may be kept in the history and in exports: the tenant only as
  * initials, no phone number and no tenant signature. The PDF itself is made from the full data.
  */
 function anonymize(r) {
   const a = JSON.parse(JSON.stringify(r));
   if (a.anon) return a;
   a.leietaker = { navn: initials(a.leietaker.navn), telefon: '', tilstede: a.leietaker.tilstede };
-  a.fullmektig = initials(a.fullmektig);
   a.tidligereLeietaker = initials(a.tidligereLeietaker);
   if (a.signatures) a.signatures.leietaker = null;
   a.anon = true;
@@ -220,53 +217,6 @@ function docTitle(type) {
     : type === 'Periodisk kontroll' ? 'Kontrollrapport' : 'Tilstandsrapport';
 }
 
-/* ---------------- import from the Flytteprotokoll app ---------------- */
-
-function sigPointsToImage(points) {
-  if (!points || !points.length) return null;
-  const c = document.createElement('canvas');
-  c.width = 600; c.height = 225;
-  const pad = new SignaturePad(c, { penColor: '#0f172a' });
-  // Fit the strokes into the canvas whatever size the pad had when they were drawn.
-  const all = points.flatMap(g => g.points);
-  const minX = Math.min(...all.map(p => p.x)), minY = Math.min(...all.map(p => p.y));
-  const w = Math.max(...all.map(p => p.x)) - minX || 1, h = Math.max(...all.map(p => p.y)) - minY || 1;
-  const k = Math.min((c.width - 20) / w, (c.height - 20) / h);
-  pad.fromData(points.map(g => ({ ...g, points: g.points.map(p => ({ ...p, x: 10 + (p.x - minX) * k, y: 10 + (p.y - minY) * k })) })));
-  return pad.toDataURL('image/png');
-}
-function fromFlytteprotokoll(p) {
-  const r = newReportData(p.type === 'Utflytting' ? 'Utflytting' : 'Innflytting');
-  Object.assign(r, {
-    id: 'fp-' + p.id, created: p.created || Date.now(), updated: p.updated || Date.now(), pdfAt: p.pdf || null,
-    locked: p.locked || 0, dato: p.dato || r.dato, adresse: p.adresse || '', leilighet: p.leilnr || '',
-    fullmakt: !!p.fullmakt, fullmektig: p.fullmektig || '', merknad: p.merknader || '',
-    korrigerer: p.korrigerer ? 'fp-' + p.korrigerer : null, korrigererDato: p.korrigererDato || null,
-    compareWith: p.refId ? 'fp-' + p.refId : null,
-  });
-  r.leietaker.navn = p.leietaker || '';
-  r.strom = { maler: p.maler || '', stand: p.strom || '' };
-  r.malerFoto = (p.malerFoto || []).map(ph => ({ id: ph.id || uid(), data: ph.data }));
-  r.keys = (p.keys || []).map(k => ({ ...makeKey(k.navn, k.antall), mangler: k.mangler || '', pris: k.pris || '', prev: k.prev || '', prisManual: !!k.prisManual }));
-  r.rooms = (p.rooms || []).map(room => ({
-    id: uid(), kind: room.type === 'Brannsikring' ? 'Brannsikkerhet' : room.type, name: room.name,
-    items: room.items.map(i => blankItem({
-      name: i.name, status: i.status || null, options: i.options || [], selected: i.sel || [], kommentar: i.kommentar || '',
-      belastes: i.ansvar === 'Skade' ? 'Leietaker' : i.ansvar === 'Kjent' ? 'Kjent' : 'Utleier',
-      kostnad: i.pris || '', prisManual: !!i.prisManual, custom: !!i.custom,
-      photos: (i.photos || []).map(ph => ({ id: ph.id || uid(), data: ph.data })),
-    })),
-  }));
-  r.signatures = { forvalter: sigPointsToImage(p.sig && p.sig.forvalter), leietaker: sigPointsToImage(p.sig && p.sig.leietaker) };
-  return anonymize(r);
-}
-function settingsFromFlytteprotokoll(s) {
-  const out = {};
-  const map = { navn: 'navn', tittel: 'stilling', enhet: 'bydel', kommune: 'kommune', logo: 'logo', adresser: 'adresser',
-    tekstInn: 'tekstInn', tekstUt: 'tekstUt', priser: 'priser', nokkelpris: 'nokkelpris' };
-  for (const [from, to] of Object.entries(map)) if (s[from] !== undefined && s[from] !== '') out[to] = s[from];
-  return out;
-}
 /** "Soverom 2" when a report has several rooms with the same name. */
 function labelIn(rooms, room) {
   const same = rooms.filter(r => r.name === room.name);
@@ -364,7 +314,7 @@ const DB = {
   open() {
     if (this._db) return Promise.resolve(this._db);
     return new Promise((resolve, reject) => {
-      const req = indexedDB.open('tilstandsrapport', 1);
+      const req = indexedDB.open('boligforvalter', 1);
       req.onupgradeneeded = () => {
         const db = req.result;
         db.createObjectStore('reports', { keyPath: 'id' });
@@ -492,11 +442,11 @@ function buildPdf(report, settings, roomLabel, ref) {
     ['Adresse', report.adresse, 'Dato', formatDate(report.dato)],
     ['Leil.nr', report.leilighet, 'Type', report.type],
     ['Leietaker', lt.navn, 'Telefon', lt.telefon],
-    ['Til stede', report.fullmakt ? 'Representant med fullmakt' : lt.tilstede, 'Boligforvalter', settings.navn],
+    ['Leietaker til stede', lt.tilstede, 'Boligforvalter', settings.navn],
     ['Strøm målernr', report.strom.maler, 'Strøm stand', report.strom.stand ? report.strom.stand + ' kWh' : ''],
   ].map(r => r.map(v => T(v || '-')));
   const wide = (label, text) => info.push([T(label), { content: T(text), colSpan: 3 }]);
-  if (report.fullmakt) wide('Møtt med fullmakt', report.fullmektig || '-');
+  if (report.ekstra && report.ekstra.navn) wide('Også til stede', [report.ekstra.navn, report.ekstra.rolle].filter(Boolean).join(', '));
   if (ut && report.dato) wide('Frist for krav', formatDate(fristDato(report.dato)) + ` (${FRIST_DAGER} dager)`);
   if (report.korrigerer) wide('Korrigert versjon', 'Erstatter dokument signert ' + formatDate(report.korrigererDato));
 
@@ -639,8 +589,10 @@ function buildPdf(report, settings, roomLabel, ref) {
   const legalText = report.type === 'Innflytting' ? settings.tekstInn
     : ut ? (keysComplete ? 'Samtlige nøkler er levert utleier. ' : 'Nøkler er levert utleier som spesifisert i protokollen. ') + settings.tekstUt
     : settings.tekstAnnen;
-  const legal = doc.splitTextToSize(T(legalText || ''), W - 2 * M - 8);
-  if (y + legal.length * 4 + 60 > BOTTOM) { doc.addPage(); y = 20; }
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);   // measure with the font it is drawn in
+  const legal = doc.splitTextToSize(T(legalText || ''), W - 2 * M - 10);
+  const sigRows = report.ekstra && report.ekstra.navn ? 106 : 60;
+  if (y + legal.length * 4 + sigRows > BOTTOM) { doc.addPage(); y = 20; }
   y += 4;
   doc.setFillColor(239, 246, 255); doc.rect(M, y, W - 2 * M, legal.length * 4 + 6, 'F');
   doc.setFillColor(...brand); doc.rect(M, y, 1.2, legal.length * 4 + 6, 'F');
@@ -649,17 +601,21 @@ function buildPdf(report, settings, roomLabel, ref) {
   y += legal.length * 4 + 12;
   const sigs = [
     { img: report.signatures.forvalter, name: settings.navn, role: [settings.stilling, settings.bydel].filter(Boolean).join(', '), x: M },
-    { img: report.signatures.leietaker, name: report.fullmakt ? report.fullmektig : lt.navn,
-      role: report.fullmakt ? `Med fullmakt for ${lt.navn || 'leietaker'}` : 'Leietaker', x: 112 },
+    { img: report.signatures.leietaker, name: lt.navn, role: 'Leietaker', x: 112 },
   ];
+  // Optional third person gets a second row.
+  if (report.ekstra && report.ekstra.navn) sigs.push({ img: report.signatures.ekstra, name: report.ekstra.navn, role: report.ekstra.rolle || 'Også til stede', x: M, dy: 46 });
   for (const s of sigs) {
-    if (s.img) doc.addImage(s.img, 'PNG', s.x, y, 66, 25);
-    doc.setDrawColor(150); doc.line(s.x, y + 27, s.x + 84, y + 27);
+    const sy = y + (s.dy || 0);
+    if (s.img) {
+      try { doc.addImage(s.img, 'PNG', s.x, sy, 66, 25); } catch (e) { /* unreadable signature image: leave the line empty */ }
+    }
+    doc.setDrawColor(150); doc.line(s.x, sy + 27, s.x + 84, sy + 27);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(20);
-    doc.text(T(s.name || ''), s.x, y + 32);
+    doc.text(T(s.name || ''), s.x, sy + 32);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...grey);
-    doc.text(T(s.role), s.x, y + 36);
-    doc.text(T(`${report.adresse ? report.adresse + ', ' : ''}${formatDate(report.dato)}`), s.x, y + 40);
+    doc.text(T(s.role), s.x, sy + 36);
+    doc.text(T(`${report.adresse ? report.adresse + ', ' : ''}${formatDate(report.dato)}`), s.x, sy + 40);
   }
 
   // Photos, six per page
@@ -717,8 +673,8 @@ function app() {
     busy: '', toastMsg: '', _toastT: null, updateReady: '',
     _saveT: null, _hiddenAt: 0,
     pads: {},
-    isAndroid: !!window.TilstandAndroid,
-    appVersion: window.TilstandAndroid && TilstandAndroid.getVersion ? TilstandAndroid.getVersion() : WEB_VERSION,
+    isAndroid: !!window.BoligAndroid,
+    appVersion: window.BoligAndroid && BoligAndroid.getVersion ? BoligAndroid.getVersion() : WEB_VERSION,
     formatDate, stats: reportStats, docTitle, kr, claimTotal, initials, fristDato,
 
     async init() {
@@ -1128,13 +1084,18 @@ function app() {
     /* ---- signatures ---- */
     initPads() {
       if (!this.report) return;
-      for (const key of ['forvalter', 'leietaker']) {
+      for (const key of ['forvalter', 'leietaker', 'ekstra']) {
         const canvas = document.getElementById('sig-' + key);
         if (!canvas) continue;
         const pad = new SignaturePad(canvas, { penColor: '#0f172a', minWidth: 0.8, maxWidth: 2.6 });
         pad._w = 0;
+        // A pad that was hidden (width 0) when the page opened is sized on the first touch,
+        // before signature_pad sees it (capture phase on the wrapper runs first).
+        for (const ev of ['pointerdown', 'mousedown', 'touchstart']) {
+          canvas.parentElement.addEventListener(ev, () => { if (canvas.offsetWidth && canvas.offsetWidth !== pad._w) this.resizePads(); }, { capture: true, passive: true });
+        }
         pad.addEventListener('endStroke', () => {
-          if (!this.report) return;
+          if (!this.report || !canvas.width || !canvas.height) return;
           this.report.signatures[key] = pad.toDataURL('image/png');
           this.queueSave();
         });
@@ -1210,11 +1171,11 @@ function app() {
           this.ref ? toPlain(this.ref) : null);
         const name = `${safeFileName(docTitle(r.type))}_${safeFileName(r.adresse)}_${safeFileName(r.leilighet)}_${r.dato}.pdf`.replace(/__+/g, '_');
         const subject = this.fillTemplate(this.settings.epostEmne), text = this.fillTemplate(this.settings.epostTekst);
-        if (window.TilstandAndroid) {
+        if (window.BoligAndroid) {
           const b64 = doc.output('datauristring').split(',')[1];
-          if (mode !== 'share') TilstandAndroid.saveFile(name, 'application/pdf', b64);
-          else if (TilstandAndroid.shareFileText) TilstandAndroid.shareFileText(name, 'application/pdf', b64, subject, text);
-          else TilstandAndroid.shareFile(name, 'application/pdf', b64);
+          if (mode !== 'share') BoligAndroid.saveFile(name, 'application/pdf', b64);
+          else if (BoligAndroid.shareFileText) BoligAndroid.shareFileText(name, 'application/pdf', b64, subject, text);
+          else BoligAndroid.shareFile(name, 'application/pdf', b64);
         } else {
           const blob = doc.output('blob');
           const file = new File([blob], name, { type: 'application/pdf' });
@@ -1304,7 +1265,7 @@ function app() {
       // Semicolons and a BOM so Norwegian Excel opens it straight into columns with æøå intact.
       const text = '\ufeff' + [head, ...rows].map(r => r.map(csvCell).join(';')).join('\r\n');
       const name = `avvik-${today()}.csv`;
-      if (window.TilstandAndroid) TilstandAndroid.saveText(name, 'text/csv', text);
+      if (window.BoligAndroid) BoligAndroid.saveText(name, 'text/csv', text);
       else downloadBlob(new Blob([text], { type: 'text/csv;charset=utf-8' }), name);
     },
 
@@ -1314,19 +1275,19 @@ function app() {
       try {
         // Exports carry the tenant only as initials, also for drafts.
         const reports = (await DB.all('reports')).map(r => anonymize(upgradeReport(r)));
-        this.saveJson(`tilstandsrapport-backup-${today()}.json`,
-          { app: 'tilstandsrapport', kind: 'backup', version: 1, exported: new Date().toISOString(), settings: this.profile(), reports });
+        this.saveJson(`boligforvalter-backup-${today()}.json`,
+          { app: 'boligforvalter', kind: 'backup', version: 1, exported: new Date().toISOString(), settings: this.profile(), reports });
       } finally {
         this.busy = '';
       }
     },
     exportProfile() {
-      this.saveJson('tilstandsrapport-profil.json',
-        { app: 'tilstandsrapport', kind: 'profil', version: 1, exported: new Date().toISOString(), settings: this.profile() });
+      this.saveJson('boligforvalter-profil.json',
+        { app: 'boligforvalter', kind: 'profil', version: 1, exported: new Date().toISOString(), settings: this.profile() });
     },
     saveJson(name, data) {
       const text = JSON.stringify(data);
-      if (window.TilstandAndroid) TilstandAndroid.saveText(name, 'application/json', text);
+      if (window.BoligAndroid) BoligAndroid.saveText(name, 'application/json', text);
       else downloadBlob(new Blob([text], { type: 'application/json' }), name);
     },
     async importBackup(e) {
@@ -1335,14 +1296,7 @@ function app() {
       if (!file) return;
       try {
         const data = JSON.parse(await file.text());
-        if (data.app === 'flytteprotokoll') {
-          // Backup from the separate Flytteprotokoll app: convert its protocols and settings.
-          this.busy = 'Konverterer flytteprotokoller …';
-          await new Promise(res => setTimeout(res, 30));
-          data.reports = (data.protocols || []).map(fromFlytteprotokoll);
-          data.settings = data.settings ? settingsFromFlytteprotokoll(data.settings) : null;
-          this.busy = '';
-        } else if (data.app !== 'tilstandsrapport' || (!data.settings && !Array.isArray(data.reports))) throw new Error('Ukjent filformat');
+        if (data.app !== 'boligforvalter' || (!data.settings && !Array.isArray(data.reports))) throw new Error('Ukjent filformat');
         const reports = Array.isArray(data.reports) ? data.reports : [];
         const what = [data.settings && 'profilen (navn, bydel, logo, adresser, sjekklister, tekster)', reports.length && `${reports.length} dokument(er)`].filter(Boolean).join(' og ');
         if (!confirm(`Importere ${what}? Det som finnes fra før med samme navn/ID blir overskrevet.`)) return;
@@ -1376,7 +1330,7 @@ function app() {
      * published app.js; when it differs it clears the offline cache and reloads.
      */
     async checkUpdate(silent = false) {
-      if (window.TilstandAndroid) { if (!silent) TilstandAndroid.checkForUpdate(); return; }
+      if (window.BoligAndroid) { if (!silent) BoligAndroid.checkForUpdate(); return; }
       if (!/^https?:$/.test(location.protocol)) { if (!silent) this.toast('Åpne appen fra nettadressen for å se etter oppdatering'); return; }
       if (!silent) this.toast('Ser etter oppdatering …');
       try {

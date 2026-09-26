@@ -1,5 +1,5 @@
 /* Offline support. Bump VERSION whenever any file in SHELL changes. */
-const VERSION = 'tilstand-v5';
+const VERSION = 'bolig-v1';
 const SHELL = [
   './',
   './index.html',

@@ -34,15 +34,15 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon assembleRelease
-          cp app/build/outputs/apk/release/app-release.apk ../tilstandsrapport.apk
+          cp app/build/outputs/apk/release/app-release.apk ../boligforvalter.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: tilstandsrapport-apk
-          path: tilstandsrapport.apk
+          name: boligforvalter-apk
+          path: boligforvalter.apk
 
       # Each build on main becomes a GitHub Release, so the newest APK is always at
-      # https://github.com/<owner>/<repo>/releases/latest/download/tilstandsrapport.apk
+      # https://github.com/<owner>/<repo>/releases/latest/download/boligforvalter.apk
       - name: Publish release
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
@@ -50,6 +50,6 @@ jobs:
         run: |
           # Same number as versionCode in android/app/build.gradle (run number + 10).
           build=$(( ${{ github.run_number }} + 10 ))
-          gh release create "v1.0.$build" tilstandsrapport.apk \
-            --title "Tilstandsrapport 1.0.$build" \
-            --notes "Android build of commit ${{ github.sha }}. Download tilstandsrapport.apk below and open it on your phone to install or update. native: ${{ env.NATIVE_HASH }}"
+          gh release create "v1.0.$build" boligforvalter.apk \
+            --title "Oslo Boligforvalter 1.0.$build" \
+            --notes "Android build of commit ${{ github.sha }}. Download boligforvalter.apk below and open it on your phone to install or update. native: ${{ env.NATIVE_HASH }}"

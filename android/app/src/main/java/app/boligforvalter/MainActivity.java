@@ -1,4 +1,4 @@
-package app.tilstandsrapport;
+package app.boligforvalter;
 
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -39,7 +39,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Hosts the Tilstandsrapport web app (bundled in assets/www) in a full-screen WebView.
+ * Hosts the Oslo Boligforvalter web app (bundled in assets/www) in a full-screen WebView.
  * Pages are served from https://appassets.androidplatform.net so IndexedDB
  * behaves like on a normal https site.
  */
@@ -47,7 +47,7 @@ public class MainActivity extends Activity {
 
     private static final String HOST = "appassets.androidplatform.net";
     private static final String START_URL = "https://" + HOST + "/assets/www/index.html";
-    private static final String APK_NAME = "tilstandsrapport.apk";
+    private static final String APK_NAME = "boligforvalter.apk";
     private static final int REQ_PICK_FILE = 1;
     private static final int REQ_SAVE_FILE = 2;
 
@@ -83,7 +83,7 @@ public class MainActivity extends Activity {
         s.setAllowFileAccess(false);
         s.setAllowContentAccess(true);
 
-        webView.addJavascriptInterface(new Bridge(), "TilstandAndroid");
+        webView.addJavascriptInterface(new Bridge(), "BoligAndroid");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -237,7 +237,7 @@ public class MainActivity extends Activity {
         if (isFinishing()) return;
         new AlertDialog.Builder(this)
                 .setTitle("Ny versjon")
-                .setMessage("Boligforvaltning " + version + " er klar. Installere nå? Dokumentene dine beholdes.")
+                .setMessage("Oslo Boligforvalter " + version + " er klar. Installere nå? Dokumentene dine beholdes.")
                 .setPositiveButton("Oppdater", (d, w) -> SelfUpdate.start(this))
                 .setNegativeButton("Senere", null)
                 .show();
@@ -286,7 +286,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Methods index.html can call as window.TilstandAndroid.*. */
+    /** Methods index.html can call as window.BoligAndroid.*. */
     private class Bridge {
         @JavascriptInterface
         public String getVersion() {
