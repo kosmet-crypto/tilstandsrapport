@@ -1,13 +1,22 @@
 /* Tilstandsrapport: all logic for index.html (Alpine.js component + PDF). */
 
 // Bump on every change: the web version compares this with the published app.js to find updates.
-const WEB_VERSION = '1.3.0';
+const WEB_VERSION = '2.0.0';
 
 const REPORT_TYPES = ['Innflytting', 'Utflytting', 'Periodisk kontroll', 'Befaring'];
 const FAGPERSONER = ['Vaktmester', 'Elektriker', 'Rørlegger', 'Maler', 'Snekker', 'Flislegger',
   'Vaskefirma', 'Servicepartner', 'Låsesmed', 'Skadedyrkontroll', 'Leietaker utbedrer'];
 const HASTEGRAD = ['Akutt', 'Snart', 'Kan vente'];
-const BELASTES = ['Utleier', 'Leietaker'];
+// Who carries a defect. 'Leietaker' is a claim against the tenant (erstatningskrav).
+const BELASTES = ['Utleier', 'Leietaker', 'Kjent'];
+const BELASTES_LABEL = { Utleier: 'Slitasje / utleier', Leietaker: 'Skade – krav mot leietaker', Kjent: 'Kjent fra før – ikke krav' };
+const DEFAULT_KEYS = ['Bolignøkler', 'Postkassenøkler', 'Bodnøkler', 'Nøkkelkort / brikker'];
+const FRIST_DAGER = 14;
+const TEKST_INN = 'Leietaker bekrefter å ha mottatt nøkler som spesifisert i protokollen, og har sammen med utleier undersøkt boligen. Boligen overtas i forevist stand med de merknader som er ført i protokollen.';
+const TEKST_UT = 'Utleier tar forbehold om krav som følge av skjulte mangler eller mangelfull utvask som oppdages ved etterkontroll. Slikt krav må fremsettes skriftlig innen 14 dager.';
+const TEKST_ANNEN = 'Partene bekrefter at rapporten gir en riktig beskrivelse av boligens tilstand på befaringsdagen.';
+const EPOST_EMNE = '{dokument} – {adresse} {leil} – {dato}';
+const EPOST_TEKST = 'Hei {leietaker},\n\nVedlagt følger {dokument_liten} for {adresse} {leil}, datert {dato}.\n\nTa kontakt hvis noe er uklart.\n\nMed vennlig hilsen\n{navn}\n{stilling}, {bydel}';
 
 // Checklist building blocks: [name, typical defects, default fagperson]
 const P = {
@@ -67,9 +76,14 @@ const DEFAULT_SETTINGS = {
   logo: '', adresser: [], pinHash: '', setupDone: false,
   checklist: null,   // null = built-in checklist
   stempel: true,     // date and address printed on photos
+  priser: [],        // [{ navn, pris }]: price per typical fault, filled in on claims
+  nokkelpris: '',    // price per missing key
+  tekstInn: TEKST_INN, tekstUt: TEKST_UT, tekstAnnen: TEKST_ANNEN,
+  epostEmne: EPOST_EMNE, epostTekst: EPOST_TEKST,
 };
 // Settings that travel in a profile/backup file (never the PIN).
-const PROFILE_KEYS = ['navn', 'stilling', 'bydel', 'kommune', 'telefon', 'epost', 'logo', 'adresser', 'checklist', 'stempel'];
+const PROFILE_KEYS = ['navn', 'stilling', 'bydel', 'kommune', 'telefon', 'epost', 'logo', 'adresser', 'checklist', 'stempel',
+  'priser', 'nokkelpris', 'tekstInn', 'tekstUt', 'tekstAnnen', 'epostEmne', 'epostTekst'];
 const TILTAK_STATUS = ['Åpen', 'Bestilt', 'Utført'];
 
 const LOCK_AFTER_MS = 5 * 60 * 1000;
@@ -128,26 +142,130 @@ function makeAppliance(type) {
   const def = CHECKLIST.appliances.find(a => a.name === type);
   return blankItem({ name: type, options: def ? [...def.defects] : [], fagperson: 'Servicepartner' });
 }
-function newReportData() {
+function makeKey(navn, antall = '') { return { id: uid(), navn, antall, mangler: '', pris: '', prev: '', prisManual: false }; }
+function newReportData(type = 'Innflytting') {
   return {
     id: uid(), created: Date.now(), updated: Date.now(), pdfAt: null,
-    type: 'Innflytting', adresse: '', leilighet: '', dato: today(),
-    leietaker: { navn: '', telefon: '', epost: '', tilstede: 'Ja' },
-    strom: { maler: '', stand: '' },
-    nokler: { nokler: '', brikker: '', merknad: '' },
+    locked: 0, anon: false, korrigerer: null, korrigererDato: null,
+    type, adresse: '', leilighet: '', dato: today(),
+    leietaker: { navn: '', telefon: '', tilstede: 'Ja' },
+    fullmakt: false, fullmektig: '', tidligereLeietaker: '',
+    strom: { maler: '', stand: '' }, malerFoto: [],
+    keys: DEFAULT_KEYS.map(n => makeKey(n)),
+    nokler: { merknad: '' },
     rooms: CHECKLIST.rooms.filter(r => r.inNew).map(r => makeRoom(r.name)),
     merknad: '',
     signatures: { forvalter: null, leietaker: null },
     compareWith: null,
   };
 }
-/** Older reports lack newer fields; fill them in when a report is loaded. */
+/** Older reports (and old app versions) lack newer fields; fill them in when a report is loaded. */
 function upgradeReport(r) {
   for (const room of r.rooms) for (const it of room.items) {
     if (!it.tiltak) it.tiltak = { status: 'Åpen', bestilt: '', utfort: '' };
+    if (!('prisManual' in it)) it.prisManual = !!it.kostnad;
   }
   if (!('compareWith' in r)) r.compareWith = null;
+  if (!r.keys) {
+    // Before 2.0 keys were two counters.
+    const n = r.nokler || {};
+    r.keys = [makeKey('Nøkler', n.nokler || ''), makeKey('Kort / brikker', n.brikker || '')];
+    r.nokler = { merknad: n.merknad || '' };
+  }
+  if (!r.malerFoto) r.malerFoto = [];
+  if (!('locked' in r)) r.locked = 0;
+  if (!('anon' in r)) r.anon = false;
+  if (!('fullmakt' in r)) { r.fullmakt = false; r.fullmektig = ''; }
+  if (!('tidligereLeietaker' in r)) r.tidligereLeietaker = '';
+  if (r.leietaker && 'epost' in r.leietaker) delete r.leietaker.epost;
   return r;
+}
+
+/* ---------------- personal data ---------------- */
+
+/** "Ola Nordmann" -> "O. N.", "Anne-Lise Berg" -> "A.-L. B." */
+function initials(name) {
+  return String(name || '').trim().split(/\s+/).filter(Boolean)
+    .map(part => part.split('-').filter(Boolean).map(p => p[0].toUpperCase() + '.').join('-')).join(' ');
+}
+/**
+ * What may be kept in the history and in exports: the tenant (and a representative) only as
+ * initials, no phone number and no tenant signature. The PDF itself is made from the full data.
+ */
+function anonymize(r) {
+  const a = JSON.parse(JSON.stringify(r));
+  if (a.anon) return a;
+  a.leietaker = { navn: initials(a.leietaker.navn), telefon: '', tilstede: a.leietaker.tilstede };
+  a.fullmektig = initials(a.fullmektig);
+  a.tidligereLeietaker = initials(a.tidligereLeietaker);
+  if (a.signatures) a.signatures.leietaker = null;
+  a.anon = true;
+  return a;
+}
+function fristDato(dato) {
+  if (!dato) return null;
+  const d = new Date(dato + 'T12:00:00');
+  d.setDate(d.getDate() + FRIST_DAGER);
+  return d;
+}
+/** Sum of claims against the tenant: damages plus missing keys (utflytting). */
+function claimTotal(r) {
+  let t = 0;
+  for (const room of r.rooms) for (const it of room.items) if (it.status === 'FEIL' && it.belastes === 'Leietaker') t += Number(it.kostnad) || 0;
+  if (r.type === 'Utflytting') for (const k of r.keys || []) t += Number(k.pris) || 0;
+  return t;
+}
+function docTitle(type) {
+  return type === 'Innflytting' ? 'Innflyttingsprotokoll' : type === 'Utflytting' ? 'Utflyttingsprotokoll'
+    : type === 'Periodisk kontroll' ? 'Kontrollrapport' : 'Tilstandsrapport';
+}
+
+/* ---------------- import from the Flytteprotokoll app ---------------- */
+
+function sigPointsToImage(points) {
+  if (!points || !points.length) return null;
+  const c = document.createElement('canvas');
+  c.width = 600; c.height = 225;
+  const pad = new SignaturePad(c, { penColor: '#0f172a' });
+  // Fit the strokes into the canvas whatever size the pad had when they were drawn.
+  const all = points.flatMap(g => g.points);
+  const minX = Math.min(...all.map(p => p.x)), minY = Math.min(...all.map(p => p.y));
+  const w = Math.max(...all.map(p => p.x)) - minX || 1, h = Math.max(...all.map(p => p.y)) - minY || 1;
+  const k = Math.min((c.width - 20) / w, (c.height - 20) / h);
+  pad.fromData(points.map(g => ({ ...g, points: g.points.map(p => ({ ...p, x: 10 + (p.x - minX) * k, y: 10 + (p.y - minY) * k })) })));
+  return pad.toDataURL('image/png');
+}
+function fromFlytteprotokoll(p) {
+  const r = newReportData(p.type === 'Utflytting' ? 'Utflytting' : 'Innflytting');
+  Object.assign(r, {
+    id: 'fp-' + p.id, created: p.created || Date.now(), updated: p.updated || Date.now(), pdfAt: p.pdf || null,
+    locked: p.locked || 0, dato: p.dato || r.dato, adresse: p.adresse || '', leilighet: p.leilnr || '',
+    fullmakt: !!p.fullmakt, fullmektig: p.fullmektig || '', merknad: p.merknader || '',
+    korrigerer: p.korrigerer ? 'fp-' + p.korrigerer : null, korrigererDato: p.korrigererDato || null,
+    compareWith: p.refId ? 'fp-' + p.refId : null,
+  });
+  r.leietaker.navn = p.leietaker || '';
+  r.strom = { maler: p.maler || '', stand: p.strom || '' };
+  r.malerFoto = (p.malerFoto || []).map(ph => ({ id: ph.id || uid(), data: ph.data }));
+  r.keys = (p.keys || []).map(k => ({ ...makeKey(k.navn, k.antall), mangler: k.mangler || '', pris: k.pris || '', prev: k.prev || '', prisManual: !!k.prisManual }));
+  r.rooms = (p.rooms || []).map(room => ({
+    id: uid(), kind: room.type === 'Brannsikring' ? 'Brannsikkerhet' : room.type, name: room.name,
+    items: room.items.map(i => blankItem({
+      name: i.name, status: i.status || null, options: i.options || [], selected: i.sel || [], kommentar: i.kommentar || '',
+      belastes: i.ansvar === 'Skade' ? 'Leietaker' : i.ansvar === 'Kjent' ? 'Kjent' : 'Utleier',
+      kostnad: i.pris || '', prisManual: !!i.prisManual, custom: !!i.custom,
+      photos: (i.photos || []).map(ph => ({ id: ph.id || uid(), data: ph.data })),
+    })),
+  }));
+  r.signatures = { forvalter: sigPointsToImage(p.sig && p.sig.forvalter), leietaker: sigPointsToImage(p.sig && p.sig.leietaker) };
+  return anonymize(r);
+}
+function settingsFromFlytteprotokoll(s) {
+  const out = {};
+  const map = { navn: 'navn', tittel: 'stilling', enhet: 'bydel', kommune: 'kommune', logo: 'logo', adresser: 'adresser',
+    tekstInn: 'tekstInn', tekstUt: 'tekstUt', priser: 'priser', nokkelpris: 'nokkelpris' };
+  for (const [from, to] of Object.entries(map)) if (s[from] !== undefined && s[from] !== '') out[to] = s[from];
+  return out;
 }
 /** "Soverom 2" when a report has several rooms with the same name. */
 function labelIn(rooms, room) {
@@ -322,6 +440,7 @@ function buildPdf(report, settings, roomLabel, ref) {
 
   // Number every photo in document order so the text can refer to "Bilde n".
   const photoList = [];
+  for (const ph of report.malerFoto || []) photoList.push({ data: ph.data, caption: 'Strømmåler' });
   for (const room of report.rooms) for (const it of room.items) {
     if (it.status !== 'FEIL') continue;
     it._nr = it.photos.map(p => { photoList.push({ data: p.data, caption: `${roomLabel(room)} - ${it.name}` }); return photoList.length; });
@@ -349,9 +468,13 @@ function buildPdf(report, settings, roomLabel, ref) {
     titleX = M + 27;
   }
   doc.setTextColor(255); doc.setFont('helvetica', 'bold'); doc.setFontSize(19);
-  doc.text('TILSTANDSRAPPORT', titleX, 14);
+  doc.text(T(docTitle(report.type).toUpperCase()), titleX, 14);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
-  doc.text(T(report.type.toUpperCase()), titleX, 22);
+  doc.text(T(report.type === 'Befaring' || report.type === 'Periodisk kontroll' ? report.type.toUpperCase() : 'FLYTTEPROTOKOLL'), titleX, 22);
+  if (report.anon) {
+    doc.setFontSize(8);
+    doc.text('Kopi fra historikk - leietakers personopplysninger er forkortet', titleX, 28);
+  }
   doc.setFontSize(9);
   const right = [
     [settings.bydel, 'bold'], [settings.kommune, 'normal'],
@@ -364,16 +487,18 @@ function buildPdf(report, settings, roomLabel, ref) {
   });
 
   const lt = report.leietaker;
-  const nokkelWord = report.type === 'Utflytting' ? 'Innlevert' : report.type === 'Innflytting' ? 'Utlevert' : 'Registrert';
+  const ut = report.type === 'Utflytting';
   const info = [
     ['Adresse', report.adresse, 'Dato', formatDate(report.dato)],
     ['Leil.nr', report.leilighet, 'Type', report.type],
     ['Leietaker', lt.navn, 'Telefon', lt.telefon],
-    ['E-post', lt.epost, 'Til stede', lt.tilstede],
+    ['Til stede', report.fullmakt ? 'Representant med fullmakt' : lt.tilstede, 'Boligforvalter', settings.navn],
     ['Strøm målernr', report.strom.maler, 'Strøm stand', report.strom.stand ? report.strom.stand + ' kWh' : ''],
-    [`${nokkelWord} nøkler`, report.nokler.nokler, 'Kort / brikker', report.nokler.brikker],
   ].map(r => r.map(v => T(v || '-')));
-  if (report.nokler.merknad) info.push(['Merknad', { content: T(report.nokler.merknad), colSpan: 3 }]);
+  const wide = (label, text) => info.push([T(label), { content: T(text), colSpan: 3 }]);
+  if (report.fullmakt) wide('Møtt med fullmakt', report.fullmektig || '-');
+  if (ut && report.dato) wide('Frist for krav', formatDate(fristDato(report.dato)) + ` (${FRIST_DAGER} dager)`);
+  if (report.korrigerer) wide('Korrigert versjon', 'Erstatter dokument signert ' + formatDate(report.korrigererDato));
 
   doc.autoTable({
     startY: 38, body: info, theme: 'plain', margin: { left: M, right: M },
@@ -382,15 +507,30 @@ function buildPdf(report, settings, roomLabel, ref) {
   });
   let y = doc.lastAutoTable.finalY + 6;
 
+  // Keys
+  const keys = (report.keys || []).filter(k => k.navn && (k.antall || k.mangler || k.prev || k.pris));
+  if (keys.length || report.nokler.merknad) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...brand);
+    doc.text('NØKLER', M, y); y += 2;
+    const head = ut ? [['Nøkkeltype', 'Levert', 'Mangler', 'Ved innflytting', 'Kostnad']]
+      : [['Nøkkeltype', report.type === 'Innflytting' ? 'Utlevert' : 'Antall']];
+    const body = keys.map(k => ut ? [k.navn, k.antall || '0', k.mangler || '0', k.prev || '-', Number(k.pris) ? kr(k.pris) : '-'].map(T)
+      : [T(k.navn), T(k.antall || '0')]);
+    if (report.nokler.merknad) body.push([{ content: T('Merknad: ' + report.nokler.merknad), colSpan: head[0].length }]);
+    doc.autoTable({ startY: y, head, body, margin: { left: M, right: M }, theme: 'striped',
+      headStyles: { fillColor: brand, fontSize: 8 }, styles: { fontSize: 8, cellPadding: 1.6 } });
+    y = doc.lastAutoTable.finalY + 6;
+  }
+
   // Summary
   const st = reportStats(report);
   doc.setDrawColor(226, 232, 240); doc.setFillColor(248, 250, 252);
   doc.roundedRect(M, y, W - 2 * M, 14, 2, 2, 'FD');
   doc.setFontSize(10); doc.setTextColor(20);
   doc.setFont('helvetica', 'bold');
-  const cols = [[`${st.checked} av ${st.total}`, 'punkter kontrollert'], [String(st.feil), 'avvik'], [String(photoList.length), 'bilder']];
+  const cols = [[`${st.checked}/${st.total}`, 'kontrollert'], [String(st.feil), 'avvik'], [String(photoList.length), 'bilder']];
   cols.forEach(([big, small], i) => {
-    const x = M + 8 + i * 62;
+    const x = M + 6 + i * 42;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
     doc.setTextColor(...(i === 1 && st.feil ? red : [20, 20, 20]));
     doc.text(big, x, y + 9);
@@ -398,6 +538,11 @@ function buildPdf(report, settings, roomLabel, ref) {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...grey);
     doc.text(small, x + bigW + 2, y + 9);
   });
+  const claim = claimTotal(report);
+  if (claim) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...red);
+    doc.text(T('Erstatningskrav: ' + kr(claim)), W - M - 4, y + 9, { align: 'right' });
+  }
   y += 22;
 
   if (ref) {
@@ -417,10 +562,10 @@ function buildPdf(report, settings, roomLabel, ref) {
   if (defects.length) {
     defects.sort((a, b) => a.it.fagperson.localeCompare(b.it.fagperson, 'nb') || hastRank[a.it.hast] - hastRank[b.it.hast]);
     const sums = { Utleier: 0, Leietaker: 0 };
-    defects.forEach(d => { sums[d.it.belastes] = (sums[d.it.belastes] || 0) + (Number(d.it.kostnad) || 0); });
+    defects.forEach(d => { if (d.it.belastes in sums) sums[d.it.belastes] += Number(d.it.kostnad) || 0; });
     const foot = [];
     if (sums.Utleier || sums.Leietaker) {
-      foot.push([{ content: T(`Sum belastes leietaker: ${kr(sums.Leietaker)}     Sum belastes utleier: ${kr(sums.Utleier)}`), colSpan: 6, styles: { halign: 'right' } }]);
+      foot.push([{ content: T(`Krav mot leietaker: ${kr(sums.Leietaker)}     Utleiers kostnad: ${kr(sums.Utleier)}`), colSpan: 6, styles: { halign: 'right' } }]);
     }
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...brand);
     doc.text('AVVIK OG TILTAK', M, y); y += 2;
@@ -429,7 +574,7 @@ function buildPdf(report, settings, roomLabel, ref) {
       head: [['Fagperson', 'Rom / punkt', 'Beskrivelse', 'Hast / status', 'Kostnad', 'Belastes']],
       body: defects.map(({ room, it }) => [it.fagperson, `${roomLabel(room)}\n${it.name}`, describeIn(room, it) || '-',
         [it.hast, tiltakText(it.tiltak)].filter(Boolean).join('\n'),
-        it.kostnad ? kr(it.kostnad) : '-', it.belastes].map(T)),
+        it.kostnad ? kr(it.kostnad) : '-', { Utleier: 'Utleier', Leietaker: 'Leietaker (krav)', Kjent: 'Kjent - ikke krav' }[it.belastes] || it.belastes].map(T)),
       foot, showFoot: 'lastPage',
       headStyles: { fillColor: red, fontSize: 8 }, footStyles: { fillColor: [255, 228, 230], textColor: 20, fontSize: 8 },
       styles: { fontSize: 8, cellPadding: 1.8, valign: 'top' },
@@ -482,15 +627,30 @@ function buildPdf(report, settings, roomLabel, ref) {
     doc.text(lines, M, y); y += lines.length * 4.2 + 2;
   }
 
-  // Signatures
-  if (y + 52 > BOTTOM) { doc.addPage(); y = 20; }
-  y += 6;
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...grey);
-  doc.text(T('Partene bekrefter at rapporten gir en riktig beskrivelse av boligens tilstand på befaringsdagen.'), M, y);
-  y += 5;
+  if (claim) {
+    if (y + 10 > BOTTOM) { doc.addPage(); y = 20; }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...red);
+    doc.text(T('TOTALT ERSTATNINGSKRAV: ' + kr(claim)), M, y + 3);
+    y += 10;
+  }
+
+  // Declaration and signatures, kept together on one page
+  const keysComplete = (report.keys || []).every(k => !Number(k.mangler) && !Number(k.pris));
+  const legalText = report.type === 'Innflytting' ? settings.tekstInn
+    : ut ? (keysComplete ? 'Samtlige nøkler er levert utleier. ' : 'Nøkler er levert utleier som spesifisert i protokollen. ') + settings.tekstUt
+    : settings.tekstAnnen;
+  const legal = doc.splitTextToSize(T(legalText || ''), W - 2 * M - 8);
+  if (y + legal.length * 4 + 60 > BOTTOM) { doc.addPage(); y = 20; }
+  y += 4;
+  doc.setFillColor(239, 246, 255); doc.rect(M, y, W - 2 * M, legal.length * 4 + 6, 'F');
+  doc.setFillColor(...brand); doc.rect(M, y, 1.2, legal.length * 4 + 6, 'F');
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(30);
+  doc.text(legal, M + 5, y + 5.5);
+  y += legal.length * 4 + 12;
   const sigs = [
     { img: report.signatures.forvalter, name: settings.navn, role: [settings.stilling, settings.bydel].filter(Boolean).join(', '), x: M },
-    { img: report.signatures.leietaker, name: lt.navn, role: 'Leietaker', x: 112 },
+    { img: report.signatures.leietaker, name: report.fullmakt ? report.fullmektig : lt.navn,
+      role: report.fullmakt ? `Med fullmakt for ${lt.navn || 'leietaker'}` : 'Leietaker', x: 112 },
   ];
   for (const s of sigs) {
     if (s.img) doc.addImage(s.img, 'PNG', s.x, y, 66, 25);
@@ -532,7 +692,7 @@ function buildPdf(report, settings, roomLabel, ref) {
   for (let i = 1; i <= n; i++) {
     doc.setPage(i);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(150);
-    doc.text(T(`Tilstandsrapport · ${report.adresse || ''} · ${formatDate(report.dato)}`), M, 290);
+    doc.text(T(`${docTitle(report.type)} · ${report.adresse || ''} · ${formatDate(report.dato)}`), M, 290);
     doc.text(`Side ${i} av ${n}`, W - M, 290, { align: 'right' });
   }
   for (const room of report.rooms) for (const it of room.items) delete it._nr;
@@ -543,8 +703,9 @@ function buildPdf(report, settings, roomLabel, ref) {
 
 function app() {
   return {
-    REPORT_TYPES, HASTEGRAD, BELASTES, TILTAK_STATUS, HVITEVARER,
+    REPORT_TYPES, HASTEGRAD, BELASTES, BELASTES_LABEL, TILTAK_STATUS, HVITEVARER, FRIST_DAGER,
     screen: 'list',
+    bolig: null, search: '', newSheet: null,
     _defCl: defaultChecklist(), clOpen: null,
     ref: null, refMap: null,
     defects: [], defFilter: 'ikke-utfort', defSearch: '',
@@ -558,7 +719,7 @@ function app() {
     pads: {},
     isAndroid: !!window.TilstandAndroid,
     appVersion: window.TilstandAndroid && TilstandAndroid.getVersion ? TilstandAndroid.getVersion() : WEB_VERSION,
-    formatDate, stats: reportStats,
+    formatDate, stats: reportStats, docTitle, kr, claimTotal, initials, fristDato,
 
     async init() {
       try {
@@ -568,6 +729,7 @@ function app() {
         this.toast('Lagring er ikke tilgjengelig i denne nettleseren');
       }
       if (!Array.isArray(this.settings.adresser)) this.settings.adresser = [];
+      if (!Array.isArray(this.settings.priser)) this.settings.priser = [];
       this.applyChecklist();
       if (!this.settings.setupDone) this.screen = 'setup';
       if (this.settings.pinHash) this.lock();
@@ -694,7 +856,8 @@ function app() {
       try { all = await DB.all('reports'); } catch (e) { /* storage unavailable */ }
       this.reports = all
         .map(r => ({ id: r.id, adresse: r.adresse, leilighet: r.leilighet, dato: r.dato, type: r.type,
-          leietaker: { navn: r.leietaker.navn }, pdfAt: r.pdfAt, updated: r.updated, feil: reportStats(r).feil,
+          leietaker: { navn: initials(r.leietaker.navn) }, pdfAt: r.pdfAt, updated: r.updated, feil: reportStats(r).feil,
+          locked: r.locked || 0, claim: claimTotal(upgradeReport(r)),
           open: r.rooms.reduce((n, room) => n + room.items.filter(it => it.status === 'FEIL' && (!it.tiltak || it.tiltak.status !== 'Utført')).length, 0) }))
         .sort((a, b) => b.updated - a.updated);
     },
@@ -719,6 +882,64 @@ function app() {
 
     /* ---- editor ---- */
     openCount() { return this.reports.reduce((n, r) => n + r.open, 0); },
+
+    /* ---- flats (boliger): every document grouped by address + flat number ---- */
+    boligKey(r) { return normAddr(r.adresse) + '|' + normAddr(r.leilighet); },
+    boliger() {
+      const map = new Map();
+      for (const r of this.reports) {
+        const key = this.boligKey(r);
+        if (!map.has(key)) map.set(key, { key, adresse: r.adresse, leilighet: r.leilighet, docs: [] });
+        map.get(key).docs.push(r);
+      }
+      const q = normAddr(this.search);
+      return [...map.values()]
+        .map(b => {
+          b.docs.sort((a, c) => (c.dato || '').localeCompare(a.dato || '') || c.updated - a.updated);
+          const moves = b.docs.filter(d => d.type === 'Innflytting' || d.type === 'Utflytting');
+          b.tenant = moves[0] && moves[0].type === 'Innflytting' ? moves[0].leietaker.navn : '';
+          b.open = b.docs.reduce((n, d) => n + d.open, 0);
+          b.frist = b.docs.map(d => this.fristInfo(d)).find(f => f && f.days >= 0) || null;
+          b.drafts = b.docs.filter(d => !d.locked).length;
+          return b;
+        })
+        .filter(b => !q || normAddr([b.adresse, b.leilighet, b.tenant, ...b.docs.map(d => d.leietaker.navn + ' ' + d.type + ' ' + formatDate(d.dato))].join(' ')).includes(q))
+        .sort((a, c) => (a.adresse || '~').localeCompare(c.adresse || '~', 'nb') || (a.leilighet || '').localeCompare(c.leilighet || '', 'nb'));
+    },
+    boligNow() { return this.boliger().find(b => b.key === this.bolig) || { key: this.bolig, adresse: '', leilighet: '', docs: [] }; },
+    openBolig(key) { this.bolig = key; this.screen = 'bolig'; window.scrollTo(0, 0); },
+    fristInfo(d) {
+      if (d.type !== 'Utflytting' || !d.dato) return null;
+      const f = fristDato(d.dato);
+      const days = Math.ceil((f - new Date()) / 864e5);
+      const text = `Frist for krav ${formatDate(f)}` + (days < 0 ? ' – utløpt' : ` – ${days} dag${days === 1 ? '' : 'er'} igjen`);
+      return { days, text, cls: days < 0 ? '' : days <= 3 ? 'bad' : 'warn' };
+    },
+    /** "+ Ny": pick the document type; from a flat the address is filled in. */
+    async newDoc(type, b) {
+      this.newSheet = null;
+      if (type === 'Utflytting' && b) {
+        const inn = b.docs.find(d => d.type === 'Innflytting');
+        if (inn) return this.startUtflytting(inn.id);
+      }
+      const r = newReportData(type);
+      if (b) { r.adresse = b.adresse; r.leilighet = b.leilighet; }
+      this.edit(r);
+    },
+    /** Utflytting from an innflytting: address, keys and rooms are copied and compared. */
+    async startUtflytting(id) {
+      const src = await DB.get('reports', id);
+      if (!src) return;
+      upgradeReport(src);
+      const r = newReportData('Utflytting');
+      Object.assign(r, { adresse: src.adresse, leilighet: src.leilighet, compareWith: src.id, tidligereLeietaker: src.leietaker.navn });
+      r.strom.maler = src.strom.maler;
+      r.keys = src.keys.map(k => ({ ...makeKey(k.navn), prev: k.antall ? k.antall + ' stk' : '' }));
+      r.rooms = src.rooms.map(room => ({ id: uid(), kind: room.kind, name: room.name,
+        items: room.items.map(it => blankItem({ name: it.name, options: [...it.options], fagperson: it.fagperson, custom: it.custom })) }));
+      this.edit(r);
+      this.toast('Utflytting startet fra innflyttingen ' + formatDate(src.dato));
+    },
     edit(r) {
       this.report = upgradeReport(r);
       this.ref = null; this.refMap = null;
@@ -738,7 +959,7 @@ function app() {
       this.pads = {};
       this.report = null;
       this.ref = null; this.refMap = null;
-      this.screen = this._returnTo || 'list';
+      this.screen = this._returnTo || (this.bolig ? 'bolig' : 'list');
       this._returnTo = null;
       if (this.screen === 'avvik') await this.loadDefects();
       await this.loadList();
@@ -750,6 +971,8 @@ function app() {
       if (this.screen === 'settings') { this.saveSettings(); this.screen = 'list'; return true; }
       if (this.screen === 'checklist') { this.saveSettings(); this.screen = 'settings'; return true; }
       if (this.screen === 'avvik') { this.closeDefects(); return true; }
+      if (this.newSheet) { this.newSheet = null; return true; }
+      if (this.screen === 'bolig') { this.bolig = null; this.screen = 'list'; return true; }
       if (this.screen === 'setup' && this.settings.setupDone) { this.screen = 'settings'; return true; }
       return false;
     },
@@ -758,7 +981,9 @@ function app() {
       clearTimeout(this._saveT);
       if (!this.report) return;
       this.report.updated = Date.now();
-      try { await DB.put('reports', toPlain(this.report)); }
+      // A signed document is kept in the history with the tenant only as initials.
+      const data = this.report.locked ? anonymize(this.report) : toPlain(this.report);
+      try { await DB.put('reports', data); }
       catch (e) { this.toast('Kunne ikke lagre. Er lagringsplassen full?'); }
     },
 
@@ -836,6 +1061,42 @@ function app() {
     toggleOption(item, opt) {
       const i = item.selected.indexOf(opt);
       if (i > -1) item.selected.splice(i, 1); else item.selected.push(opt);
+      this.suggestPris(item);
+    },
+    /* ---- claims: price list ---- */
+    priceMap() {
+      const m = {};
+      for (const p of this.settings.priser || []) if (p.navn && Number(p.pris)) m[p.navn.trim().toLowerCase()] = Number(p.pris);
+      return m;
+    },
+    suggestPris(item) {
+      if (item.prisManual || item.belastes !== 'Leietaker') return;
+      const m = this.priceMap();
+      const sum = item.selected.reduce((t, o) => t + (m[o.toLowerCase()] || 0), 0);
+      item.kostnad = sum ? String(sum) : '';
+    },
+    setBelastes(item, b) { item.belastes = b; this.suggestPris(item); },
+    keyChanged(k) {
+      if (!k.prisManual && Number(this.settings.nokkelpris)) k.pris = Number(k.mangler) ? String(Number(k.mangler) * Number(this.settings.nokkelpris)) : '';
+    },
+    addKey() { this.report.keys.push(makeKey('')); },
+    allOptions() {
+      const cl = this.cl();
+      return [...new Set([...cl.rooms.flatMap(r => r.items.flatMap(i => i.options)), ...cl.appliances.flatMap(a => a.defects)])].sort((a, b) => a.localeCompare(b, 'nb'));
+    },
+    addPrice() { this.settings.priser.push({ navn: '', pris: '' }); },
+    resetTexts() {
+      if (!confirm('Tilbakestille erklæringer og e-posttekst til standard?')) return;
+      Object.assign(this.settings, { tekstInn: TEKST_INN, tekstUt: TEKST_UT, tekstAnnen: TEKST_ANNEN, epostEmne: EPOST_EMNE, epostTekst: EPOST_TEKST });
+      this.saveSettings();
+    },
+    async addMeterPhotos(e) {
+      const files = [...e.target.files];
+      e.target.value = '';
+      this.busy = 'Behandler bilde …';
+      try { for (const f of files) this.report.malerFoto.push({ id: uid(), data: await compressImage(f, this.settings.stempel !== false ? photoStamp(f, this.report) : '') }); }
+      catch (err) { this.toast(err.message); }
+      finally { this.busy = ''; this.saveNow(); }
     },
     addAppliance(room, type) { room.items.push(makeAppliance(type)); },
     addCustomItem(room) { room.items.push(blankItem({ custom: true })); },
@@ -881,6 +1142,7 @@ function app() {
         this.sizePad(pad, canvas);
         const saved = this.report.signatures[key];
         if (saved) pad.fromDataURL(saved, { width: canvas.offsetWidth, height: canvas.offsetHeight });
+        if (this.report.locked) pad.off();
       }
     },
     sizePad(pad, canvas) {
@@ -893,13 +1155,15 @@ function app() {
     // Only redraw when the width really changes: mobile browsers fire "resize"
     // whenever the address bar hides, which used to wipe the signature.
     resizePads() {
-      for (const pad of Object.values(this.pads)) {
+      for (const [key, pad] of Object.entries(this.pads)) {
         const canvas = pad.canvas;
         if (!canvas.offsetWidth || canvas.offsetWidth === pad._w) continue;
         const data = pad.toData();
         this.sizePad(pad, canvas);
         pad.clear();
-        pad.fromData(data);
+        // A signature loaded from the saved image has no strokes; redraw the image instead.
+        if (data.length) pad.fromData(data);
+        else if (this.report && this.report.signatures[key]) pad.fromDataURL(this.report.signatures[key], { width: canvas.offsetWidth, height: canvas.offsetHeight });
       }
     },
     clearSig(key) {
@@ -908,29 +1172,55 @@ function app() {
     },
 
     /* ---- PDF ---- */
+    missingInfo() {
+      const r = this.report, m = [];
+      if (!r.leietaker.navn.trim() && (r.type === 'Innflytting' || r.type === 'Utflytting')) m.push('leietaker');
+      const st = reportStats(r);
+      if (st.checked < st.total) m.push(`${st.total - st.checked} punkter uten status (kommer ikke med)`);
+      if (!r.signatures.forvalter) m.push('signatur boligforvalter');
+      if (!r.signatures.leietaker && (r.type === 'Innflytting' || r.type === 'Utflytting')) m.push('signatur leietaker');
+      return m;
+    },
+    fillTemplate(t) {
+      const r = this.report, S = this.settings;
+      const v = { dokument: docTitle(r.type), dokument_liten: docTitle(r.type).toLowerCase(), type: r.type, adresse: r.adresse || '',
+        leil: r.leilighet || '', dato: formatDate(r.dato), leietaker: initials(r.leietaker.navn),
+        navn: S.navn || '', stilling: S.stilling || '', bydel: S.bydel || '' };
+      return (t || '').replace(/\{(\w+)\}/g, (all, k) => k in v ? v[k] : all)
+        .replace(/ +/g, ' ').replace(/ ,/g, ',').replace(/,\s*$/gm, '').replace(/Hei ,/, 'Hei,').trim();
+    },
     async makePdf(mode) {
       const r = this.report;
       if (!r.adresse.trim()) { this.toast('Fyll inn adresse først'); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
-      const st = reportStats(r);
-      if (st.checked < st.total && !confirm(`${st.total - st.checked} punkt(er) er ikke kontrollert og kommer ikke med i rapporten. Fortsette?`)) return;
-      if (!r.signatures.forvalter && !confirm('Rapporten er ikke signert av boligforvalter. Fortsette?')) return;
+      let newlyLocked = false;
+      if (!r.locked) {
+        const miss = this.missingInfo();
+        if (!confirm((miss.length ? 'Mangler: ' + miss.join(', ') + '.\n\n' : '')
+          + 'Når PDF-en lages, blir dokumentet signert og låst. I historikken lagres leietaker bare med initialer. '
+          + 'Feil rettes med en korrigert kopi.\n\nFortsette?')) return;
+        r.locked = Date.now();
+        newlyLocked = true;
+        Object.values(this.pads).forEach(p => p.off());
+      }
 
       this.busy = 'Lager PDF …';
       await new Promise(res => setTimeout(res, 60));
       try {
         const doc = buildPdf(toPlain(r), this.settings, room => this.roomLabel(r.rooms.find(x => x.id === room.id)),
           this.ref ? toPlain(this.ref) : null);
-        const name = `Tilstandsrapport_${safeFileName(r.type)}_${safeFileName(r.adresse)}_${r.dato}.pdf`;
+        const name = `${safeFileName(docTitle(r.type))}_${safeFileName(r.adresse)}_${safeFileName(r.leilighet)}_${r.dato}.pdf`.replace(/__+/g, '_');
+        const subject = this.fillTemplate(this.settings.epostEmne), text = this.fillTemplate(this.settings.epostTekst);
         if (window.TilstandAndroid) {
           const b64 = doc.output('datauristring').split(',')[1];
-          if (mode === 'share') TilstandAndroid.shareFile(name, 'application/pdf', b64);
-          else TilstandAndroid.saveFile(name, 'application/pdf', b64);
+          if (mode !== 'share') TilstandAndroid.saveFile(name, 'application/pdf', b64);
+          else if (TilstandAndroid.shareFileText) TilstandAndroid.shareFileText(name, 'application/pdf', b64, subject, text);
+          else TilstandAndroid.shareFile(name, 'application/pdf', b64);
         } else {
           const blob = doc.output('blob');
           const file = new File([blob], name, { type: 'application/pdf' });
           if (mode === 'share' && navigator.canShare && navigator.canShare({ files: [file] })) {
             this.busy = '';
-            try { await navigator.share({ files: [file], title: name }); } catch (e) { /* cancelled */ }
+            try { await navigator.share({ files: [file], title: subject, text }); } catch (e) { /* cancelled */ }
           } else {
             downloadBlob(blob, name);
           }
@@ -940,14 +1230,29 @@ function app() {
       } catch (e) {
         console.error(e);
         alert('Kunne ikke lage PDF: ' + e.message);
+        if (newlyLocked) { r.locked = 0; Object.values(this.pads).forEach(p => p.on()); await this.saveNow(); }
       } finally {
         this.busy = '';
       }
     },
 
+    async copyForCorrection() {
+      if (!confirm('Lage en ny, redigerbar kopi?\n\nDet signerte dokumentet beholdes uendret. Kopien må signeres på nytt.')) return;
+      await this.saveNow();
+      const src = toPlain(this.report);
+      const r = { ...src, id: uid(), created: Date.now(), updated: Date.now(), pdfAt: null, locked: 0, anon: false,
+        korrigerer: src.id, korrigererDato: src.locked, signatures: { forvalter: null, leietaker: null } };
+      this.pads = {};
+      this.report = null;
+      await this.$nextTick();
+      this.edit(r);
+      if (src.anon) this.toast('Kopi laget. Skriv inn leietakers fulle navn på nytt.');
+      else this.toast('Korrigert kopi laget');
+    },
+
     /* ---- all defects across reports ---- */
     async openDefects() { this.screen = 'avvik'; window.scrollTo(0, 0); await this.loadDefects(); },
-    closeDefects() { this.screen = 'list'; this.defects = []; this.loadList(); },
+    closeDefects() { this.screen = this.bolig ? 'bolig' : 'list'; this.defects = []; this.loadList(); },
     async loadDefects() {
       const all = (await DB.all('reports')).map(upgradeReport);
       const list = [];
@@ -993,7 +1298,7 @@ function app() {
     exportCsv() {
       const head = ['Adresse', 'Leil.nr', 'Rapportdato', 'Type', 'Leietaker', 'Rom', 'Punkt', 'Beskrivelse', 'Fagperson',
         'Hastegrad', 'Kostnad', 'Belastes', 'Status', 'Bestilt', 'Utført'];
-      const rows = this.filteredDefects().map(d => [d.adresse, d.leilighet, formatDate(d.dato), d.type, d.leietaker, d.rom,
+      const rows = this.filteredDefects().map(d => [d.adresse, d.leilighet, formatDate(d.dato), d.type, initials(d.leietaker), d.rom,
         d.punkt, d.beskrivelse, d.fagperson, d.hast, d.kostnad, d.belastes, d.tiltak.status, formatDate(d.tiltak.bestilt), formatDate(d.tiltak.utfort)]);
       if (!rows.length) return this.toast('Ingen avvik å eksportere');
       // Semicolons and a BOM so Norwegian Excel opens it straight into columns with æøå intact.
@@ -1007,7 +1312,8 @@ function app() {
     async exportBackup() {
       this.busy = 'Lager sikkerhetskopi …';
       try {
-        const reports = await DB.all('reports');
+        // Exports carry the tenant only as initials, also for drafts.
+        const reports = (await DB.all('reports')).map(r => anonymize(upgradeReport(r)));
         this.saveJson(`tilstandsrapport-backup-${today()}.json`,
           { app: 'tilstandsrapport', kind: 'backup', version: 1, exported: new Date().toISOString(), settings: this.profile(), reports });
       } finally {
@@ -1029,9 +1335,16 @@ function app() {
       if (!file) return;
       try {
         const data = JSON.parse(await file.text());
-        if (data.app !== 'tilstandsrapport' || (!data.settings && !Array.isArray(data.reports))) throw new Error('Ukjent filformat');
+        if (data.app === 'flytteprotokoll') {
+          // Backup from the separate Flytteprotokoll app: convert its protocols and settings.
+          this.busy = 'Konverterer flytteprotokoller …';
+          await new Promise(res => setTimeout(res, 30));
+          data.reports = (data.protocols || []).map(fromFlytteprotokoll);
+          data.settings = data.settings ? settingsFromFlytteprotokoll(data.settings) : null;
+          this.busy = '';
+        } else if (data.app !== 'tilstandsrapport' || (!data.settings && !Array.isArray(data.reports))) throw new Error('Ukjent filformat');
         const reports = Array.isArray(data.reports) ? data.reports : [];
-        const what = [data.settings && 'profilen (navn, bydel, logo, adresser)', reports.length && `${reports.length} rapport(er)`].filter(Boolean).join(' og ');
+        const what = [data.settings && 'profilen (navn, bydel, logo, adresser, sjekklister, tekster)', reports.length && `${reports.length} dokument(er)`].filter(Boolean).join(' og ');
         if (!confirm(`Importere ${what}? Det som finnes fra før med samme navn/ID blir overskrevet.`)) return;
         for (const r of reports) await DB.put('reports', r);
         if (data.settings) {
@@ -1039,6 +1352,7 @@ function app() {
           for (const k of PROFILE_KEYS) if (k in data.settings) p[k] = data.settings[k];
           this.settings = { ...this.settings, ...p };
           if (!Array.isArray(this.settings.adresser)) this.settings.adresser = [];
+          if (!Array.isArray(this.settings.priser)) this.settings.priser = [];
           await this.saveSettings();
         }
         await this.loadList();

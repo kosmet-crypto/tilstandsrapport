@@ -237,7 +237,7 @@ public class MainActivity extends Activity {
         if (isFinishing()) return;
         new AlertDialog.Builder(this)
                 .setTitle("Ny versjon")
-                .setMessage("Tilstandsrapport " + version + " er klar. Installere nå? Rapportene dine beholdes.")
+                .setMessage("Boligforvaltning " + version + " er klar. Installere nå? Dokumentene dine beholdes.")
                 .setPositiveButton("Oppdater", (d, w) -> SelfUpdate.start(this))
                 .setNegativeButton("Senere", null)
                 .show();
@@ -261,7 +261,7 @@ public class MainActivity extends Activity {
     }
 
     /** Opens the share sheet (e-post, Teams, OneDrive …) with the file attached. */
-    private void shareBytes(String name, String mime, byte[] bytes) {
+    private void shareBytes(String name, String mime, byte[] bytes, String subject, String text) {
         try {
             File dir = new File(getCacheDir(), "shared");
             dir.mkdirs();
@@ -275,10 +275,12 @@ public class MainActivity extends Activity {
             Intent send = new Intent(Intent.ACTION_SEND);
             send.setType(mime);
             send.putExtra(Intent.EXTRA_STREAM, uri);
-            send.putExtra(Intent.EXTRA_SUBJECT, name.replace('_', ' ').replaceAll("\\.pdf$", ""));
+            send.putExtra(Intent.EXTRA_SUBJECT, subject != null && !subject.isEmpty() ? subject
+                    : name.replace('_', ' ').replaceAll("\\.pdf$", ""));
+            if (text != null && !text.isEmpty()) send.putExtra(Intent.EXTRA_TEXT, text);
             send.setClipData(ClipData.newRawUri(name, uri));
             send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            startActivity(Intent.createChooser(send, "Del rapport"));
+            startActivity(Intent.createChooser(send, "Del dokument"));
         } catch (Exception e) {
             Toast.makeText(this, "Kunne ikke dele filen", Toast.LENGTH_LONG).show();
         }
@@ -311,7 +313,15 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void shareFile(final String name, final String mime, final String base64) {
             final byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
-            runOnUiThread(() -> shareBytes(name, mime, bytes));
+            runOnUiThread(() -> shareBytes(name, mime, bytes, null, null));
+        }
+
+        /** Like shareFile, with a ready e-mail subject and text (the page checks that this exists). */
+        @JavascriptInterface
+        public void shareFileText(final String name, final String mime, final String base64,
+                                  final String subject, final String text) {
+            final byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
+            runOnUiThread(() -> shareBytes(name, mime, bytes, subject, text));
         }
     }
 

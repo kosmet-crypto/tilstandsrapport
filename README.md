@@ -1,6 +1,7 @@
-# Tilstandsrapport
+# Boligforvaltning (Tilstandsrapport + Flytteprotokoll)
 
-Mobile app for inspecting municipal housing (innflytting, utflytting, periodisk kontroll, befaring).
+One mobile app for municipal housing: flytteprotokoll (innflytting, utflytting), periodisk kontroll and
+befaring / tilstandsrapport, organised per flat (Boliger), with a tab for defects and follow-up (Avvik).
 Go room by room, mark each point OK or AVVIK, add photos, assign the trade (fagperson), urgency and
 estimated cost, collect signatures from boligforvalter and leietaker, and produce a PDF report.
 
@@ -8,6 +9,15 @@ Everything runs on the device. Reports are stored locally (IndexedDB) and never 
 unless you share the PDF or export a backup.
 
 ## Features
+* **Boliger:** every document grouped by address and flat number; open a flat to see its history and start the next
+  document there. *Start utflytting* copies keys and rooms from the innflytting and compares every point.
+* **Signed and locked:** making the PDF signs and locks the document; mistakes are fixed with a *korrigert kopi*.
+* **Personal data:** the PDF has the tenant's full name. The history, backups and Excel export keep the tenant (and a
+  representative) only as initials; phone number and the tenant's signature are not kept.
+* **Claims (utflytting):** keys delivered / missing with price per key, damages charged to the tenant with prices from
+  your own price list, "known from before – no claim", total claim and the 14-day deadline in the list and the PDF.
+* Editable declarations and e-mail subject/text for *Del PDF*; representative with power of attorney; meter photo.
+* Import of backups from the old Flytteprotokoll app.
 * Report types: Innflytting, Utflytting, Periodisk kontroll, Befaring.
 * Leietaker details, electricity meter, keys and access cards.
 * Room checklists (entré, stue, kjøkken, soverom, bad, WC, vaskerom, bod, balkong, brannsikkerhet,

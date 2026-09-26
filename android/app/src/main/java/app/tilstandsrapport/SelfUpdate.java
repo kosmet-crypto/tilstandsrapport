@@ -33,7 +33,7 @@ public class SelfUpdate extends BroadcastReceiver {
     static void start(Activity a) {
         if (!a.getPackageManager().canRequestPackageInstalls()) {
             a.getSharedPreferences("update", Context.MODE_PRIVATE).edit().putBoolean("resumeInstall", true).apply();
-            Toast.makeText(a, "Tillat Tilstandsrapport å installere oppdateringer, og gå tilbake", Toast.LENGTH_LONG).show();
+            Toast.makeText(a, "Tillat Boligforvaltning å installere oppdateringer, og gå tilbake", Toast.LENGTH_LONG).show();
             try {
                 a.startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + a.getPackageName())));
             } catch (Exception e) {
@@ -122,7 +122,7 @@ public class SelfUpdate extends BroadcastReceiver {
         PendingIntent open = PendingIntent.getActivity(ctx, 5, launch, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         nm.notify(77, new Notification.Builder(ctx, "updates")
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
-                .setContentTitle("Tilstandsrapport er oppdatert")
+                .setContentTitle("Boligforvaltning er oppdatert")
                 .setContentText("Trykk for å åpne den nye versjonen.")
                 .setContentIntent(open)
                 .setAutoCancel(true)

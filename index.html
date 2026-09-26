@@ -6,8 +6,8 @@
 <meta name="app-native" content="1">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#002664">
-<meta name="description" content="Tilstandsrapport for kommunale boliger: befaring, avvik, bilder, signatur og PDF.">
-<title>Tilstandsrapport</title>
+<meta name="description" content="Boligforvaltning: flytteprotokoller, tilstandsrapporter, avvik og oppfølging for kommunale boliger.">
+<title>Boligforvaltning</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -183,6 +183,42 @@ canvas.sig { display: block; width: 100%; height: 170px; border: 1px solid var(-
 .defcard .title { font-weight: 700; }
 .defcard.st-Utført { opacity: .75; }
 .defcard.st-Utført .seg.tiltak button.on { background: var(--ok); border-color: var(--ok); }
+.room-head { cursor: pointer; }
+fieldset.doc { border: 0; margin: 0; padding: 0; min-width: 0; }
+fieldset.doc:disabled .okfeil button:not(.on), fieldset.doc:disabled .chips button:not(.on) { opacity: .45; }
+fieldset.doc:disabled .room-tools, fieldset.doc:disabled .add-photo, fieldset.doc:disabled .clear,
+fieldset.doc:disabled .photo button, fieldset.doc:disabled .x { display: none; }
+.locked-banner { background: var(--ok-soft); border-color: var(--ok); }
+.with-tabs { padding-bottom: calc(env(safe-area-inset-bottom) + 90px); }
+.tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; background: var(--card); border-top: 1px solid var(--line);
+  padding: 4px 8px calc(env(safe-area-inset-bottom) + 4px); }
+.tabbar button { flex: 1; background: none; border: 0; padding: 6px 4px; font-size: 12px; font-weight: 700; color: var(--muted);
+  display: flex; flex-direction: column; align-items: center; gap: 2px; position: relative; }
+.tabbar button span { font-size: 20px; line-height: 1.1; }
+.tabbar button.on { color: var(--brand); }
+.tabbar button b { position: absolute; top: 2px; left: calc(50% + 8px); background: var(--bad); color: #fff; border-radius: 99px; font-size: 11px; padding: 0 6px; }
+.bolig-card { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.bolig-card .title, .report .title { font-weight: 700; }
+.chev { color: var(--muted); font-size: 24px; }
+.tag.warn { background: #fef3c7; color: #92400e; }
+.newgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.newgrid .btn { font-size: 14px; padding: 10px 8px; }
+.sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 60; display: flex; align-items: flex-end; justify-content: center; }
+.sheet { background: var(--card); width: 100%; max-width: 680px; border-radius: 20px 20px 0 0; padding: 18px 16px calc(env(safe-area-inset-bottom) + 16px); }
+.sheet h2 { margin: 0 0 12px; font-size: 18px; }
+.sheet-opt { display: block; width: 100%; text-align: left; background: var(--field); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; font: inherit; color: inherit; }
+.sheet-opt b { display: block; font-size: 16px; }
+.sheet-opt span { font-size: 13px; color: var(--muted); }
+.keys-head, .keys-row { display: grid; grid-template-columns: 1fr 70px 36px; gap: 6px; align-items: center; }
+.keys.ut .keys-head, .keys.ut .keys-row { grid-template-columns: 1fr 58px 58px 78px 36px; }
+.keys-head { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+.keys-row { margin-bottom: 6px; }
+.keys-row input { min-height: 40px; padding: 8px; }
+.seg.belastes button { font-size: 13px; }
+.seg.belastes button.on.Leietaker { background: var(--bad); border-color: var(--bad); }
+.seg.belastes button.on.Kjent { background: #b45309; border-color: #b45309; }
+.claim { font-weight: 800; color: var(--bad); margin: -4px 0 10px; }
+.claim.frist { color: var(--warn); font-weight: 700; font-size: 14px; }
 .credits { background: var(--field); border: 1px solid var(--line); border-radius: 12px; padding: 12px; text-align: center; line-height: 1.6; }
 footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 24px; }
 </style>
@@ -192,7 +228,7 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
 <!-- Lock screen -->
 <div class="lock" x-show="locked" x-cloak>
   <div class="box">
-    <div class="muted small" style="font-weight:700;letter-spacing:.08em;text-transform:uppercase">Tilstandsrapport</div>
+    <div class="muted small" style="font-weight:700;letter-spacing:.08em;text-transform:uppercase">Boligforvaltning</div>
     <h2 style="margin:6px 0 0">Skriv inn PIN</h2>
     <input type="password" inputmode="numeric" autocomplete="off" maxlength="8" x-model="pinInput" @keyup.enter="unlock()" x-ref="pin">
     <button class="btn btn-primary btn-block" @click="unlock()">Lås opp</button>
@@ -201,50 +237,108 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
 
 <div x-show="!locked" x-cloak>
 
-  <!-- ============ LIST ============ -->
+  <!-- ============ BOLIGER (flats) ============ -->
   <template x-if="screen === 'list'">
     <div>
       <header class="topbar">
         <div class="topbar-row">
           <template x-if="settings.logo"><div class="logo-top"><img :src="settings.logo" alt=""></div></template>
-          <h1>Tilstandsrapport<div class="sub" x-text="[settings.bydel, settings.navn].filter(Boolean).join(' · ')"></div></h1>
-          <button class="icon-btn" @click="screen = 'settings'" aria-label="Innstillinger">⚙</button>
+          <h1>Boligforvaltning<div class="sub" x-text="[settings.bydel, settings.navn].filter(Boolean).join(' · ')"></div></h1>
         </div>
       </header>
-      <main>
+      <main class="with-tabs">
         <button class="btn btn-ghost btn-block" x-show="updateReady" @click="installUpdate()" style="margin-bottom:12px" x-text="'Ny versjon ' + updateReady + ' er klar. Trykk for å oppdatere'"></button>
-        <button class="btn btn-primary btn-block btn-big" @click="newReport()">+ Ny rapport</button>
-        <button class="btn btn-ghost btn-block" style="margin-top:8px" x-show="reports.some(r => r.feil)" @click="openDefects()"
-          x-text="'Avvik og oppfølging' + (openCount() ? ' · ' + openCount() + ' ikke utført' : '')"></button>
-        <div style="height:16px"></div>
+        <button class="btn btn-primary btn-block btn-big" @click="newSheet = { bolig: null }">+ Nytt dokument</button>
+        <div style="height:12px"></div>
+        <input type="text" placeholder="Søk: adresse, leil.nr, initialer, dato …" x-model="search" x-show="reports.length" style="margin-bottom:12px">
 
         <template x-if="reports.length === 0">
-          <div class="card muted" style="text-align:center">Ingen rapporter ennå. Trykk «Ny rapport» for å starte en befaring.</div>
+          <div class="card muted" style="text-align:center">Ingen dokumenter ennå. Trykk «Nytt dokument» for å lage en flytteprotokoll eller tilstandsrapport.</div>
         </template>
 
-        <template x-for="r in reports" :key="r.id">
-          <div class="card report">
-            <div class="body">
-              <div class="title" x-text="r.adresse || 'Uten adresse'"></div>
-              <div class="muted small" x-text="[r.leilighet && ('Leil. ' + r.leilighet), formatDate(r.dato), r.leietaker.navn].filter(Boolean).join(' · ')"></div>
-              <div style="margin-top:6px">
-                <span class="tag" x-text="r.type"></span>
-                <span class="tag bad" x-show="r.feil > 0" x-text="r.feil + ' avvik' + (r.open < r.feil ? ' (' + (r.feil - r.open) + ' utført)' : '')"></span>
-                <span class="tag ok" x-show="r.pdfAt" x-text="'PDF ' + formatDate(r.pdfAt)"></span>
+        <template x-for="b in boliger()" :key="b.key">
+          <button class="card bolig-card" @click="openBolig(b.key)">
+            <div class="row">
+              <div class="grow">
+                <div class="title" x-text="b.adresse || 'Uten adresse'"></div>
+                <div class="muted small" x-text="[b.leilighet && ('Leil. ' + b.leilighet), b.tenant && ('Leietaker ' + b.tenant), b.docs.length + ' dokument' + (b.docs.length === 1 ? '' : 'er')].filter(Boolean).join(' · ')"></div>
               </div>
-              <div class="menu">
-                <button @click="openReport(r.id)">Åpne</button>
-                <button @click="copyReport(r.id)">Ny fra denne</button>
-                <button class="del" @click="deleteReport(r.id)">Slett</button>
-              </div>
+              <span class="chev">›</span>
             </div>
-          </div>
+            <div style="margin-top:6px">
+              <span class="tag" x-text="b.docs[0].type + ' ' + formatDate(b.docs[0].dato)"></span>
+              <span class="tag bad" x-show="b.open" x-text="b.open + ' avvik ikke utført'"></span>
+              <span class="tag warn" x-show="b.drafts" x-text="b.drafts + ' utkast'"></span>
+              <span class="tag" :class="b.frist && b.frist.cls" x-show="b.frist" x-text="b.frist && b.frist.text"></span>
+            </div>
+          </button>
         </template>
 
         <footer><span x-text="'Versjon ' + appVersion + ' · Data lagres kun på denne enheten'"></span><br>Utviklet av Ivan St.<br><button class="linkbtn" @click="checkUpdate()">Se etter oppdatering</button></footer>
       </main>
     </div>
   </template>
+
+  <!-- ============ ONE FLAT ============ -->
+  <template x-if="screen === 'bolig'">
+    <div x-data="{ get b() { return boligNow() } }">
+      <header class="topbar">
+        <div class="topbar-row">
+          <button class="icon-btn" @click="bolig = null; screen = 'list'" aria-label="Tilbake">←</button>
+          <h1><span x-text="b.adresse || 'Uten adresse'"></span><div class="sub" x-text="[b.leilighet && ('Leil. ' + b.leilighet), b.tenant && ('Leietaker ' + b.tenant)].filter(Boolean).join(' · ')"></div></h1>
+        </div>
+      </header>
+      <main class="with-tabs">
+        <section class="card">
+          <h2>Nytt dokument for denne boligen</h2>
+          <div class="newgrid">
+            <template x-for="t in REPORT_TYPES">
+              <button class="btn btn-ghost" @click="newDoc(t, b)" x-text="'+ ' + t"></button>
+            </template>
+          </div>
+          <p class="muted small" style="margin-bottom:0" x-show="b.docs.some(d => d.type === 'Innflytting')">Utflytting starter fra siste innflytting: nøkler og rom kopieres, og hvert punkt sammenlignes.</p>
+        </section>
+
+        <template x-for="d in b.docs" :key="d.id">
+          <div class="card report">
+            <div class="body">
+              <div class="row">
+                <div class="grow">
+                  <div class="title" x-text="docTitle(d.type)"></div>
+                  <div class="muted small" x-text="[formatDate(d.dato), d.leietaker.navn].filter(Boolean).join(' · ')"></div>
+                </div>
+                <span class="tag" :class="d.locked ? 'ok' : 'warn'" x-text="d.locked ? '🔒 Signert' : 'Utkast'"></span>
+              </div>
+              <div style="margin-top:6px">
+                <span class="tag bad" x-show="d.feil > 0" x-text="d.feil + ' avvik' + (d.open < d.feil ? ' (' + (d.feil - d.open) + ' utført)' : '')"></span>
+                <span class="tag bad" x-show="d.claim" x-text="'Krav ' + kr(d.claim)"></span>
+                <span class="tag" :class="fristInfo(d) && fristInfo(d).cls" x-show="fristInfo(d)" x-text="fristInfo(d) && fristInfo(d).text"></span>
+              </div>
+              <div class="menu">
+                <button @click="openReport(d.id)" x-text="d.locked ? 'Vis' : 'Fortsett'"></button>
+                <button x-show="d.type === 'Innflytting'" @click="startUtflytting(d.id)">Start utflytting</button>
+                <button @click="copyReport(d.id)">Ny med samme rom</button>
+                <button class="del" @click="deleteReport(d.id)">Slett</button>
+              </div>
+            </div>
+          </div>
+        </template>
+      </main>
+    </div>
+  </template>
+
+  <!-- New document: choose the type -->
+  <div class="sheet-bg" x-show="newSheet" x-cloak @click.self="newSheet = null">
+    <div class="sheet">
+      <h2>Hva vil du lage?</h2>
+      <button class="sheet-opt" @click="newDoc('Innflytting')"><b>Innflytting</b><span>Flytteprotokoll ved overtakelse: nøkler, rom, signatur.</span></button>
+      <button class="sheet-opt" @click="newDoc('Utflytting')"><b>Utflytting</b><span>Flytteprotokoll ved fraflytting: mangler, erstatningskrav, frist.</span></button>
+      <button class="sheet-opt" @click="newDoc('Periodisk kontroll')"><b>Periodisk kontroll</b><span>Kontroll av boligen mens den er utleid.</span></button>
+      <button class="sheet-opt" @click="newDoc('Befaring')"><b>Befaring / tilstandsrapport</b><span>Tilstand og avvik, f.eks. før oppussing.</span></button>
+      <p class="muted small">Tips: åpne en bolig i listen for å starte utflytting fra innflyttingen.</p>
+      <button class="btn btn-ghost btn-block" @click="newSheet = null">Avbryt</button>
+    </div>
+  </div>
 
   <!-- ============ SETUP (first start) + SETTINGS ============ -->
   <template x-if="screen === 'settings' || screen === 'setup'">
@@ -255,7 +349,7 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
           <h1 x-text="screen === 'setup' ? 'Velkommen' : 'Innstillinger'"></h1>
         </div>
       </header>
-      <main>
+      <main class="with-tabs">
         <template x-if="screen === 'setup'">
           <section class="card">
             <h2>Kom i gang</h2>
@@ -323,7 +417,7 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
         <template x-if="screen === 'setup'">
           <div>
             <button class="btn btn-primary btn-block btn-big" @click="finishSetup()">Start</button>
-            <footer>Tilstandsrapport · Utviklet av Ivan St.</footer>
+            <footer>Boligforvaltning · Utviklet av Ivan St.</footer>
           </div>
         </template>
 
@@ -336,9 +430,35 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
               <label class="check"><input type="checkbox" x-model="settings.stempel" @change="saveSettings()"> Skriv dato, klokkeslett og adresse på bildene</label>
             </section>
 
+            <section class="card" @change="saveSettings()">
+              <h2>Priser for erstatningskrav</h2>
+              <p class="muted small" style="margin-top:0">Når et avvik belastes leietaker, fylles kravet inn fra prisene for de typiske feilene som er valgt. Beløpet kan alltid endres.</p>
+              <datalist id="opt-list"><template x-for="o in allOptions()" :key="o"><option :value="o"></option></template></datalist>
+              <template x-for="(pr, pIdx) in settings.priser" :key="pIdx">
+                <div class="row" style="margin-bottom:6px">
+                  <input type="text" class="grow" list="opt-list" placeholder="Typisk feil, f.eks. Hull i vegg" x-model="pr.navn">
+                  <input type="number" min="0" inputmode="numeric" placeholder="kr" x-model="pr.pris" style="width:96px">
+                  <button class="mini del" @click="settings.priser.splice(pIdx, 1); saveSettings()" aria-label="Fjern">×</button>
+                </div>
+              </template>
+              <button class="btn btn-ghost btn-block" @click="addPrice()">+ Pris</button>
+              <label class="f" style="margin:12px 0 0">Pris per manglende nøkkel (kr) <input type="number" min="0" inputmode="numeric" x-model="settings.nokkelpris"></label>
+            </section>
+
+            <section class="card" @change="saveSettings()">
+              <h2>Tekster</h2>
+              <label class="f">Erklæring, innflytting <textarea x-model="settings.tekstInn"></textarea></label>
+              <label class="f">Erklæring, utflytting <textarea x-model="settings.tekstUt"></textarea></label>
+              <label class="f">Erklæring, kontroll og befaring <textarea x-model="settings.tekstAnnen"></textarea></label>
+              <label class="f">E-post: emne <input type="text" x-model="settings.epostEmne"></label>
+              <label class="f">E-post: tekst <textarea x-model="settings.epostTekst" style="min-height:150px"></textarea></label>
+              <p class="muted small">Felter: {dokument}, {adresse}, {leil}, {dato}, {leietaker} (bare initialer), {navn}, {stilling}, {bydel}. Brukes når du trykker «Del PDF».</p>
+              <button class="btn btn-ghost btn-block" @click="resetTexts()">Tilbakestill tekstene</button>
+            </section>
+
             <section class="card stack">
               <h2>Sikkerhetskopi</h2>
-              <p class="muted small" style="margin-top:0">Alt ligger bare på denne enheten. <b>Profil</b> er innstillingene (navn, bydel, logo, adresser, sjekklister). <b>Sikkerhetskopi</b> er profil + alle rapporter. Bruk dem for å flytte data til ny telefon, mellom nettleser og app, eller til en kollega.</p>
+              <p class="muted small" style="margin-top:0">Alt ligger bare på denne enheten. <b>Profil</b> er innstillingene (navn, bydel, logo, adresser, sjekklister). <b>Sikkerhetskopi</b> er profil + alle dokumenter, med leietakere bare som initialer. Bruk dem for å flytte data til ny telefon, mellom nettleser og app, eller til en kollega. Sikkerhetskopi fra den gamle Flytteprotokoll-appen kan også importeres.</p>
               <button class="btn btn-ghost btn-block" @click="exportProfile()">Eksporter profil</button>
               <button class="btn btn-ghost btn-block" @click="exportBackup()">Eksporter sikkerhetskopi (alt)</button>
               <label class="btn btn-ghost btn-block">Importer profil eller sikkerhetskopi
@@ -349,7 +469,8 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
             <section class="card stack">
               <h2>Om appen</h2>
               <div class="credits">
-                <b>Tilstandsrapport</b>
+                <b>Boligforvaltning</b>
+                <div class="muted small">Flytteprotokoll og tilstandsrapport i én app</div>
                 <div x-text="'Versjon ' + appVersion"></div>
                 <div>Utviklet av <b>Ivan St.</b></div>
                 <div class="muted small">Bruker Alpine.js, jsPDF, jsPDF-AutoTable og signature_pad (MIT-lisens).</div>
@@ -373,7 +494,7 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
           <h1>Sjekklister<div class="sub">Gjelder nye rapporter · lagres automatisk</div></h1>
         </div>
       </header>
-      <main @change="saveSettings()">
+      <main class="with-tabs" @change="saveSettings()">
         <section class="card">
           <h2>Rom</h2>
           <p class="muted small" style="margin-top:0">Kryss av for rom som skal være med i hver nye rapport. De andre kan legges til ved behov. Typiske feil skrives med komma mellom.</p>
@@ -455,7 +576,7 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
           <h1>Avvik og oppfølging<div class="sub" x-text="defects.length + ' avvik i alle rapporter'"></div></h1>
         </div>
       </header>
-      <main>
+      <main class="with-tabs">
         <div class="seg">
           <button :class="defFilter === 'ikke-utfort' && 'on'" @click="defFilter = 'ikke-utfort'" x-text="'Ikke utført (' + defCount('ikke-utfort') + ')'"></button>
           <template x-for="st in TILTAK_STATUS">
@@ -504,12 +625,24 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
         <header class="topbar">
           <div class="topbar-row">
             <button class="icon-btn" @click="closeReport()" aria-label="Tilbake">←</button>
-            <h1><span x-text="report.adresse || 'Ny rapport'"></span><div class="sub" x-text="report.type + ' · ' + progressText()"></div></h1>
+            <h1><span x-text="report.adresse || docTitle(report.type)"></span><div class="sub" x-text="docTitle(report.type) + ' · ' + progressText()"></div></h1>
           </div>
           <div class="progress"><div :style="'width:' + progressPct() + '%'"></div></div>
         </header>
 
         <main>
+          <template x-if="report.locked">
+            <section class="card locked-banner">
+              <b>🔒 Signert og låst <span x-text="formatDate(report.locked)"></span></b>
+              <p class="small" style="margin:6px 0 10px">Dokumentet kan ikke endres. <span x-show="report.anon">Leietaker vises bare med initialer. En ny PDF herfra blir merket som kopi fra historikk.</span> Oppfølging av avvik gjøres under fanen Avvik.</p>
+              <button class="btn btn-ghost btn-block" @click="copyForCorrection()">Lag korrigert kopi</button>
+            </section>
+          </template>
+          <template x-if="report.korrigerer && !report.locked">
+            <div class="card small" style="background:var(--brand-soft)">Korrigert kopi av dokument signert <span x-text="formatDate(report.korrigererDato)"></span>. Må signeres på nytt.</div>
+          </template>
+
+          <fieldset class="doc" :disabled="!!report.locked">
           <!-- Details -->
           <section class="card">
             <h2>01 · Detaljer</h2>
@@ -539,40 +672,74 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
 
           <section class="card">
             <h2>02 · Leietaker</h2>
-            <label class="f">Navn <input type="text" x-model="report.leietaker.navn" autocomplete="off"></label>
-            <div class="grid2">
-              <label class="f">Telefon <input type="tel" x-model="report.leietaker.telefon" autocomplete="off"></label>
-              <label class="f">E-post <input type="email" x-model="report.leietaker.epost" autocomplete="off"></label>
-            </div>
-            <label class="f" style="margin-bottom:0">Til stede under befaring
-              <select x-model="report.leietaker.tilstede">
-                <option>Ja</option><option>Nei</option><option>Representant</option>
-              </select>
+            <label class="f">Navn
+              <input type="text" x-model="report.leietaker.navn" autocomplete="off" :placeholder="report.tidligereLeietaker ? 'Ved innflytting: ' + report.tidligereLeietaker : 'Fullt navn'">
             </label>
+            <p class="muted small" style="margin:-4px 0 10px">Fullt navn står i PDF-en. I historikken og i eksporter lagres bare initialer<span x-show="report.leietaker.navn" x-text="' (' + initials(report.leietaker.navn) + ')'"></span>.</p>
+            <div class="grid2">
+              <label class="f">Telefon (bare i PDF) <input type="tel" x-model="report.leietaker.telefon" autocomplete="off"></label>
+              <label class="f">Til stede
+                <select x-model="report.leietaker.tilstede">
+                  <option>Ja</option><option>Nei</option><option>Representant</option>
+                </select>
+              </label>
+            </div>
+            <label class="check"><input type="checkbox" x-model="report.fullmakt"> Møtt med fullmakt</label>
+            <label class="f" x-show="report.fullmakt" style="margin:10px 0 0">Navn på representant <input type="text" x-model="report.fullmektig" autocomplete="off"></label>
           </section>
 
           <section class="card">
-            <h2>03 · Målere og nøkler</h2>
-            <div class="grid2">
-              <label class="f">Strøm målernr <input type="text" x-model="report.strom.maler" inputmode="numeric"></label>
-              <label class="f">Strøm stand (kWh) <input type="text" x-model="report.strom.stand" inputmode="decimal"></label>
+            <h2>03 · Nøkler</h2>
+            <div class="keys" :class="report.type === 'Utflytting' && 'ut'">
+              <div class="keys-head">
+                <span>Type</span><span x-text="report.type === 'Utflytting' ? 'Levert' : report.type === 'Innflytting' ? 'Utlevert' : 'Antall'"></span>
+                <template x-if="report.type === 'Utflytting'"><span>Mangler</span></template>
+                <template x-if="report.type === 'Utflytting'"><span>Kostnad</span></template>
+                <span></span>
+              </div>
+              <template x-for="(k, kIdx) in report.keys" :key="k.id">
+                <div>
+                  <div class="keys-row">
+                    <input type="text" x-model="k.navn" placeholder="Nøkkeltype">
+                    <input type="number" min="0" inputmode="numeric" x-model="k.antall">
+                    <template x-if="report.type === 'Utflytting'"><input type="number" min="0" inputmode="numeric" x-model="k.mangler" @input="keyChanged(k)"></template>
+                    <template x-if="report.type === 'Utflytting'"><input type="number" min="0" inputmode="numeric" x-model="k.pris" @input="k.prisManual = true"></template>
+                    <button class="mini del" @click="report.keys.splice(kIdx, 1)" aria-label="Fjern">×</button>
+                  </div>
+                  <div class="muted small" x-show="k.prev" x-text="'Ved innflytting: ' + k.prev" style="margin:-2px 0 6px"></div>
+                </div>
+              </template>
             </div>
+            <button class="btn btn-ghost small" style="min-height:38px;padding:8px 12px" @click="addKey()">+ Nøkkeltype</button>
+            <label class="f" style="margin:10px 0 0">Merknad nøkler <input type="text" x-model="report.nokler.merknad" placeholder="F.eks. systemnøkkel nr., brikke-ID"></label>
+          </section>
+
+          <section class="card">
+            <h2>04 · Strøm</h2>
             <div class="grid2">
-              <label class="f"><span x-text="'Nøkler ' + nokkelLabel().toLowerCase()"></span> <input type="number" min="0" x-model="report.nokler.nokler" inputmode="numeric"></label>
-              <label class="f">Kort / brikker <input type="number" min="0" x-model="report.nokler.brikker" inputmode="numeric"></label>
+              <label class="f">Målernummer <input type="text" x-model="report.strom.maler" inputmode="numeric"></label>
+              <label class="f">Målerstand (kWh) <input type="text" x-model="report.strom.stand" inputmode="decimal"></label>
             </div>
-            <label class="f" style="margin-bottom:0">Merknad nøkler / målere <input type="text" x-model="report.nokler.merknad" placeholder="F.eks. postkassenøkkel, systemnøkkel nr."></label>
+            <div class="photos">
+              <template x-for="(p, pIdx) in report.malerFoto" :key="p.id">
+                <div class="photo"><img :src="p.data" alt=""><button @click="report.malerFoto.splice(pIdx, 1)" aria-label="Slett bilde">×</button></div>
+              </template>
+              <label class="add-photo"><span>📷</span>Måler
+                <input type="file" accept="image/*" class="hidden" @change="addMeterPhotos($event)">
+              </label>
+            </div>
           </section>
 
           <!-- Rooms -->
           <template x-for="(room, rIdx) in report.rooms" :key="room.id">
             <section class="card room" :class="{ 'done': roomStats(room).done && !roomStats(room).feil, 'has-bad': roomStats(room).feil }">
-              <button class="room-head" @click="toggleRoom(room)">
+              <!-- A div, not a button: rooms must still open in a signed (disabled) document. -->
+              <div class="room-head" role="button" tabindex="0" @click="toggleRoom(room)" @keydown.enter="toggleRoom(room)">
                 <span class="bar"></span>
                 <span class="name" x-text="roomLabel(room)"></span>
                 <span class="count" x-text="roomStats(room).checked + '/' + room.items.length + (roomStats(room).feil ? ' · ' + roomStats(room).feil + ' avvik' : '')"></span>
                 <span class="chev" x-text="openRoom === room.id ? '−' : '+'"></span>
-              </button>
+              </div>
 
               <div class="room-body" x-show="openRoom === room.id">
                 <div class="room-tools">
@@ -611,11 +778,17 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
                         <label class="f">Hastegrad
                           <select x-model="item.hast"><template x-for="h in HASTEGRAD"><option :value="h" x-text="h" :selected="item.hast === h"></option></template></select>
                         </label>
-                        <label class="f">Anslått kostnad (kr) <input type="number" min="0" inputmode="numeric" x-model="item.kostnad"></label>
-                        <label class="f">Belastes
-                          <select x-model="item.belastes"><template x-for="b in BELASTES"><option :value="b" x-text="b" :selected="item.belastes === b"></option></template></select>
-                        </label>
                       </div>
+                      <div class="sig-label" style="margin-top:0">Hvem bærer kostnaden</div>
+                      <div class="seg belastes">
+                        <template x-for="b in BELASTES">
+                          <button :class="item.belastes === b && 'on ' + b" @click="setBelastes(item, b)" x-text="BELASTES_LABEL[b]"></button>
+                        </template>
+                      </div>
+                      <label class="f" x-show="item.belastes !== 'Kjent'">
+                        <span x-text="item.belastes === 'Leietaker' ? 'Erstatningskrav (kr)' : 'Anslått kostnad (kr)'"></span>
+                        <input type="number" min="0" inputmode="numeric" x-model="item.kostnad" @input="item.prisManual = !!item.kostnad">
+                      </label>
                       <div class="sig-label" style="margin-top:0">Oppfølging</div>
                       <div class="seg tiltak">
                         <template x-for="st in TILTAK_STATUS">
@@ -669,14 +842,16 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
             <textarea x-model="report.merknad" placeholder="Helhetsinntrykk, avtaler med leietaker, frister …"></textarea>
           </section>
 
-          <!-- Finish -->
+          <!-- Signatures -->
           <section class="card">
-            <h2>Signatur og rapport</h2>
+            <h2>Signatur</h2>
             <div class="summary">
               <div><b x-text="stats(report).checked + '/' + stats(report).total"></b><span>kontrollert</span></div>
               <div><b x-text="stats(report).feil" :style="stats(report).feil && 'color:var(--bad)'"></b><span>avvik</span></div>
               <div><b x-text="stats(report).photos"></b><span>bilder</span></div>
             </div>
+            <div class="claim" x-show="claimTotal(report)" x-text="'Erstatningskrav: ' + kr(claimTotal(report))"></div>
+            <div class="claim frist" x-show="report.type === 'Utflytting'" x-text="'Frist for krav: ' + formatDate(fristDato(report.dato)) + ' (' + FRIST_DAGER + ' dager)'"></div>
 
             <div class="sig-label" x-text="'Boligforvalter: ' + (settings.navn || '')"></div>
             <div class="sig-wrap">
@@ -684,26 +859,36 @@ footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 2
               <button class="btn btn-danger clear" @click="clearSig('forvalter')">Slett</button>
             </div>
 
-            <div class="sig-label" x-text="'Leietaker: ' + (report.leietaker.navn || '')"></div>
+            <div class="sig-label" x-text="report.fullmakt ? 'Representant: ' + (report.fullmektig || '') : 'Leietaker: ' + (report.leietaker.navn || '')"></div>
             <div class="sig-wrap">
               <canvas class="sig" id="sig-leietaker"></canvas>
               <button class="btn btn-danger clear" @click="clearSig('leietaker')">Slett</button>
             </div>
+            <p class="muted small" x-show="report.locked && report.anon && !report.signatures.leietaker">Leietakers signatur finnes bare i PDF-en som ble sendt.</p>
+          </section>
+          </fieldset>
 
-            <div style="height:16px"></div>
+          <section class="card">
+            <h2 x-text="docTitle(report.type)"></h2>
+            <p class="muted small" style="margin-top:0" x-show="!report.locked">Når PDF-en lages, blir dokumentet signert og låst. Leietaker lagres da bare med initialer.</p>
             <div class="stack">
-              <button class="btn btn-primary btn-block btn-big" @click="makePdf('share')">Del rapport (PDF)</button>
-              <button class="btn btn-ghost btn-block" @click="makePdf('save')">Lagre PDF</button>
+              <button class="btn btn-primary btn-block btn-big" @click="makePdf('share')" x-text="report.locked ? 'Del PDF på nytt' : 'Signer og del PDF'"></button>
+              <button class="btn btn-ghost btn-block" @click="makePdf('save')" x-text="report.locked ? 'Lagre PDF på nytt' : 'Signer og lagre PDF'"></button>
             </div>
           </section>
 
-          <footer>Lagres automatisk</footer>
+          <footer x-text="report.locked ? 'Signert dokument' : 'Lagres automatisk'"></footer>
         </main>
       </div>
     </template>
   </div>
 </div>
 
+<nav class="tabbar" x-show="!locked && ['list', 'bolig', 'avvik', 'settings', 'checklist'].includes(screen)" x-cloak>
+  <button :class="(screen === 'list' || screen === 'bolig') && 'on'" @click="screen === 'avvik' && closeDefects(); bolig = null; screen = 'list'; loadList()"><span>🏠</span>Boliger</button>
+  <button :class="screen === 'avvik' && 'on'" @click="bolig = null; openDefects()"><span>🛠</span>Avvik<b x-show="openCount()" x-text="openCount()"></b></button>
+  <button :class="(screen === 'settings' || screen === 'checklist') && 'on'" @click="saveSettings(); screen = 'settings'"><span>⚙</span>Innstillinger</button>
+</nav>
 <div class="busy" x-show="busy" x-cloak x-text="busy"></div>
 <div class="toast" x-show="toastMsg" x-cloak x-transition.opacity x-text="toastMsg"></div>
 

@@ -1,6 +1,6 @@
 {
-  "name": "Tilstandsrapport",
-  "short_name": "Tilstand",
+  "name": "Boligforvaltning",
+  "short_name": "Bolig",
   "description": "Tilstandsrapport for kommunale boliger: befaring, avvik, bilder, signatur og PDF.",
   "id": "./",
   "start_url": "./",
